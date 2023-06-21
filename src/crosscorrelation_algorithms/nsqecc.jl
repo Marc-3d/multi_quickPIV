@@ -9,23 +9,14 @@
 """
 function displacement_from_crosscorrelation( ::NSQECC, G, F, TLF, scale, pivparams, tmp_data )  
 
-  # SIZES OF INTERROGATOIN REGION (G) AND SEARCH REGION (F).
-  size_G = _isize( pivparams, scale ); 
-  marg_F = _smarg( pivparams, scale );
-  size_F = size_G .+ 2 .* marg_F;
-
   # COPYING INPUT DATA INTO THEIR RESPECTIVE PADDED ARRAYS.
-  prepare_inputs!( NSQECC(), G, F, TLF, size_G, marg_F, tmp_data )
+  prepare_inputs!( NSQECC(), G, F, TLF, scale, pivparams, tmp_data )
 
   # COMPUTING NSQECC MATRIX INPLACE (ON PAD_G)
-  _NSQECC!( tmp_data..., size_G, size_F )  
-
-  # FINDING MAXIMUM PEAK
-  peak, maxval = firstPeak( tmp_data[1] );
+  _NSQECC!( tmp_data..., scale, pivparams )  
 
   # COMPUTE DISPLACEMENT
-  center = div.( size_F, 2 ) .+ div.( size_G, 2 ); 
-  displacement = gaussian_displacement( tmp_data[1], peak, maxval, center )
+  displacement = gaussian_displacement( tmp_data[1], scale, pivparams )
   
   return displacement
 end
@@ -64,6 +55,10 @@ end
 
   In addition, NSQECC requires computing the integral array from the search region.^2.
 """
+function prepare_inputs!( ::NSQECC, G, F, TLF, scale, pivparams::PIVParameters, tmp_data )
+  prepare_inputs!( NSQECC(), G, F, TLF, _isize(pivparams,scale), _smarg(pivparams,scale), tmp_data ) 
+end
+
 function prepare_inputs!( ::NSQECC, G, F, TLF, size_G, marg_F, tmp_data )
 
   copy_inter_region!( tmp_data[1], G, TLF, size_G );          
@@ -93,7 +88,11 @@ end
   NOTE: We only consider translations with full overlap between G and F, because it is
   extrapolate regions partial overlap when using the L2 similarity. 
 """
-function _NSQECC!( pad_G::Array{T,2}, pad_F::Array{T,2}, int2_F::Array{T,2}, r2c, c2r, size_G, size_F ) where {T<:AbstractFloat}
+function _NSQECC!( pad_G, pad_F, int2_F, r2c, c2r, scale, pivparams::PIVParameters )
+  return _NSQECC!( pad_G, pad_F, int2_F, r2c, c2r, _isize(pivparams,scale), _ssize(pivparams,scale) );
+end
+
+function _NSQECC!( pad_G::Array{T,2}, pad_F::Array{T,2}, int2_F::Array{T,2}, r2c, c2r, size_G::Dims{2}, size_F::Dims{2} ) where {T<:AbstractFloat}
 
   # COMPUTING INTERROGATION REGION CONSTANTS, BEFORE ANY IN-PLACE FFT. 
   sumG2 = 0.0
@@ -129,7 +128,7 @@ function _NSQECC!( pad_G::Array{T,2}, pad_F::Array{T,2}, int2_F::Array{T,2}, r2c
   end end
 end
 
-function _NSQECC!( pad_G::Array{T,3}, pad_F::Array{T,3}, int2_F::Array{T,2}, r2c, c2r, size_G, size_F ) where {T<:AbstractFloat}
+function _NSQECC!( pad_G::Array{T,3}, pad_F::Array{T,3}, int2_F::Array{T,3}, r2c, c2r, size_G::Dims{3}, size_F::Dims{3} ) where {T<:AbstractFloat}
 
   sumG2 = 0.0
   @inbounds for z in 1:size_G[3], x in 1:size_G[2], y in 1:size_G[1]
@@ -157,9 +156,9 @@ function _NSQECC!( pad_G::Array{T,3}, pad_F::Array{T,3}, int2_F::Array{T,2}, r2c
 end
 
 #=
-  Out-of-place FFTCC for debugging. 
+  OUT-OF-PLACE NSQECC FOR DEBUGGING. 
   
-  It assumes that size(G) .+ size(F) .- 1 is odd. It will fail if this is not the case.
+  IT ASSUMES THAT size(G) .+ size(F) .- 1 IS ODD. IT WILL FAIL IF THIS IS NOT THE CASE.
 =#
 function _NSQECC_piv( G::Array{T,N}, F::Array{T,N}; precision=32 ) where {T,N}
 
@@ -175,6 +174,14 @@ function _NSQECC_piv( G::Array{T,N}, F::Array{T,N}; precision=32 ) where {T,N}
 
   return tmp_data[1], tmp_data[2]
 end
+
+
+
+
+
+
+
+
 
 """
   Out-of-place implementation of NSQECC cross-correlation.

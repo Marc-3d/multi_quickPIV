@@ -33,22 +33,25 @@ searchMargin::Dims{3}            # search margin in pixels/voxels
      filtFun::Function           # Function to filter the background in FTCC, ZNCC and NSQECC
    threshold::Float64            # Threshold for the background filtering function
        ndims::Integer            # Number of dimensions of the data. This is set within PIV(...).
+      ovp_th::Float64            # For masked_NSQECC
 end
 
 # constructor 
 function PIVParameters( calg::CORRTYPES, isize::dimable, smarg::dimable, ovp::dimable,
                         step::dimable, mp::Integer, doSN::Bool, filtFun::Function, 
-                        th::Real, ndims::Integer )
+                        th::Real, ndims::Integer, ovp_th::Float64 )
     return PIVParameters( calg, toDims3(isize), toDims3(smarg), toDims3(ovp), 
-                          toDims3(step), mp, doSN, filtFun, Float64(th), ndims )
+                          toDims3(step), mp, doSN, filtFun, Float64(th), ndims,
+                          ovp_th )
 end
 
 # constructor with default values
 function setPIVParameters(; corr_alg = "nsqecc", interSize = 32, searchMargin = 0, 
                             overlap = 0, step = nothing, mpass = 1, computeSN = false, 
-                            filtFun = (x)->maxval(x), threshold = -1.0, ndims = 3 )
+                            filtFun = (x)->maxval(x), threshold = -1.0, ndims = 3,
+                            ovp_th = 0.5 )
     return PIVParameters( parseCorr(corr_alg), interSize, searchMargin, overlap,
-                          step, mpass, computeSN, filtFun, threshold, ndims )
+                          step, mpass, computeSN, filtFun, threshold, ndims, ovp_th )
 end
 
 _isize( params::PIVParameters, scale=1 ) = params.interSize[ 1:params.ndims ] .* scale; 

@@ -10,12 +10,21 @@ include("./crosscorrelation_algorithms/zncc.jl")
 include("./crosscorrelation_algorithms/nsqecc.jl")
 include("./crosscorrelation_algorithms/mask_nsqecc.jl")
 
+
+# STANDARD PIV 
 function PIV( input1, input2, pivparams::PIVParameters, precision=32 )
 	return PIV_singlethreaded( input1, input2, pivparams, precision  )
 end
 
+# MASKED PIV
+function PIV( input1, input2, mask, pivparams::PIVParameters, precision=32 )
+	return PIV_singlethreaded_masked( input1, input2, mask, pivparams, precision  )
+end
+
+
+
 """
-    Single threaded PIV implementation. This is the default. 
+	Single threaded PIV implementations (default). 
 """
 function PIV_singlethreaded( input1::AbstractArray{<:Real,N}, input2::AbstractArray{<:Real,N}, 
 	                         pivparams::PIVParameters, precision=32 ) where {N}
@@ -25,9 +34,6 @@ function PIV_singlethreaded( input1::AbstractArray{<:Real,N}, input2::AbstractAr
 
     pivparams.ndims = N;
 
-    # ONE OF {FFT, ZNCC, NSQECC, MASK_NSQECC}
-    corr_alg = pivparams.corr_alg; 
-
     # PREALLOCATING RESULTS: VECTOR FIELD + SIGNAL-TO-NOISE MATRIX
 	VF, SN = allocate_outputs( size1, pivparams, precision )
 	counts = zeros( UInt16, size( VF )[2:end] );
@@ -36,34 +42,73 @@ function PIV_singlethreaded( input1::AbstractArray{<:Real,N}, input2::AbstractAr
 	for scale in pivparams.multipass:-1:1
 
         # PREALLOCATING CROSS-CORRELATION DATA
-        tmp_data = allocate_tmp_data( corr_alg, scale, pivparams, precision )
+        tmp_data = allocate_tmp_data( pivparams.corr_alg, scale, pivparams, precision )
 
-        # FOR EACH INTERROGATION/SEARCH PAIR IN THE CURRENT SCALE
 		vf_size = get_VF_size( size1, pivparams, scale )
         for vf_idx in 1:prod( vf_size )
             
-            IA_TLF = get_interrogation_origin( vf_idx, vf_size, pivparams, scale )
+        	# FOR EACH INTERROGATION/SEARCH PAIR IN THE CURRENT SCALE
+            IA_TLF = get_interrogation_origin( vf_idx, vf_size, scale, pivparams )
 
-            # ONE-LINER TO COMPUTE CROSS-CORRELATION AND FIND MAXIMUM PEAK
-            displacement = displacement_from_crosscorrelation( corr_alg, input1, input2, IA_TLF, scale, pivparams, tmp_data )
+			if skip_inter_region( input1, IA_TLF, scale, pivparams )
+				continue
+			end
+
+            # COMPUTE CROSS-CORRELATION AND FIND DISPLACEMENT FROM MAXIMUM PEAK + GAUSSIAN REFINEMENT
+            displacement = displacement_from_crosscorrelation( pivparams.corr_alg, input1, input2, IA_TLF, scale, pivparams, tmp_data )
 
             # UPDATING THE VECTOR FIELD
             update_vectorfield!( VF, counts, displacement, vf_idx, size1, pivparams, scale )
             
             # SINCE THE CORRELATION MATRIX STILL RESIDES IN TMP_DATA, WE CAN STILL COMPUTE SN FROM IT
             if scale == 1 && pivparams.computeSN
-                SN = compute_SN( pivparams, tmp_data )
-                SN[vf_idx] = SN;
+                SN[vf_idx] = compute_SN( pivparams, tmp_data );
             end
         end
 		
-		destroy_fftw_plans( corr_alg, tmp_data )
+		destroy_fftw_plans( pivparams.corr_alg, tmp_data )
         #interpolate_vectorfield!( VF, counts ); 
 	end
 
 
     return VF, SN 
 end
+
+# MASKED PIV
+function PIV_singlethreaded_masked( input1::AbstractArray{<:Real,N}, input2::AbstractArray{<:Real,N}, 
+									mask, pivparams::PIVParameters, precision=32 ) where {N}
+
+	size1, size2, size3 = size(input1), size(input2), size( mask );
+    @assert all( size1 .== size2 .== size3 ) "PIV inputs need to have the same size."
+    pivparams.ndims = N;
+
+	VF, SN = allocate_outputs( size1, pivparams, precision )
+	counts = zeros( UInt16, size( VF )[2:end] );
+
+	for scale in pivparams.multipass:-1:1
+
+        tmp_data = allocate_tmp_data( mask_NSQECC(), scale, pivparams, precision )
+		vf_size  = get_VF_size( size1, pivparams, scale )
+
+        for vf_idx in 1:prod( vf_size )
+            
+            IA_TLF = get_interrogation_origin( vf_idx, vf_size, scale, pivparams )
+			skip_inter_region( mask, IA_TLF, scale, pivparams ) && ( continue; )
+
+            displacement = displacement_from_crosscorrelation( mask_NSQECC(), input1, input2, mask, IA_TLF, scale, pivparams, tmp_data )
+            update_vectorfield!( VF, counts, displacement, vf_idx, size1, pivparams, scale )
+			
+            ( scale == 1 && pivparams.computeSN ) && ( SN[vf_idx] = compute_SN( pivparams, tmp_data ); )
+        end
+		
+		destroy_fftw_plans( mask_NSQECC(), tmp_data )
+	end
+
+
+    return VF, SN 
+end
+
+
 
 """
     Multithreaded PIV. This is the default if julia is launched with multiple threads. 
@@ -95,6 +140,8 @@ function PIV_multithreaded( input1, input2, pivparams, precision=32 )
 	end
 
 end
+
+
 
 """
     TODO: CPU(single_thread)s-GPU PIV. 
@@ -130,6 +177,7 @@ function PIV_singlethreaded_and_GPU( input1, input2, pivparams; precision=32 )
 	end
 
 end
+
 
 
 """

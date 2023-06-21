@@ -7,25 +7,17 @@ a pair of interrogation/search regions and computes a displacement vector.
   the user can provide a mask for the interrogation region, and only the
   masked pixels will be considered in the cross-correlation. 
 """
-function displacement_from_crosscorrelation( ::mask_NSQECC, G, F, mask, TLF, scale, pivparams, tmp_data, ovp_th=0.5 )  
-
-  # SIZES OF INTERROGATOIN REGION (G) AND SEARCH REGION (F). 
-  size_G = _isize( pivparams, scale ); 
-  marg_F = _smarg( pivparams, scale );
-  size_F = size_G .+ 2 .* marg_F;
+function displacement_from_crosscorrelation( ::mask_NSQECC, G, F, mask, TLF, scale, 
+                                                            pivparams, tmp_data )  
 
   # COPYING INPUT DATA INTO THEIR RESPECTIVE PADDED ARRAYS AND COMPUTING INTEGRAL ARRAYS
-  prepare_inputs!( mask_NSQECC(), G, F, mask, TLF, size_G, size_F, marg_F, tmp_data )
+  prepare_inputs!( mask_NSQECC(), G, F, mask, TLF, scale, pivparams, tmp_data )
 
   # COMPUTING maske_NSQECC MATRIX INPLACE (ON PAD_G)
-  _mask_NSQECC!( tmp_data..., size_G, size_F, ovp_th )  
-
-  # FINDING MAXIMUM PEAK
-  peak, maxval = firstPeak( tmp_data[1] );
+  _mask_NSQECC!( tmp_data..., scale, pivparams, pivparams.ovp_th )  
 
   # COMPUTE DISPLACEMENT
-  center = div.( size_F, 2 ) .+ div.( size_G, 2 ); 
-  displacement = gaussian_displacement( tmp_data[2], peak, maxval, center )
+  displacement = gaussian_displacement( tmp_data[1], scale, pivparams )
   
   return displacement
 end
@@ -41,11 +33,11 @@ end
     [7] FFT_plan_forward   : forward r2c FFT plan ( inplace )
     [8] FFT_plan_inverse   : inverse c2r FFT plan ( inplace )
 """
-function allocate_tmp_data( ::mask_NSQECC, scale, pivparams; precision=32 )
-  return allocate_tmp_data( mask_NSQECC(), _isize(pivparams,scale), _ssize(pivparams,scale), precision=precision )
+function allocate_tmp_data( ::mask_NSQECC, scale, pivparams::PIVParameters, precision=32 )
+  return allocate_tmp_data( mask_NSQECC(), _isize(pivparams,scale), _ssize(pivparams,scale), precision )
 end
 
-function allocate_tmp_data( ::mask_NSQECC, inter_size::Dims{N}, search_size::Dims{N}; precision=32 ) where {N}
+function allocate_tmp_data( ::mask_NSQECC, inter_size::Dims{N}, search_size::Dims{N}, precision=32 ) where {N}
 
   corr_size     = inter_size .+ search_size .- 1 .+ 1;
   pad_corr_size = corr_size .+ ( 2, zeros(Int,N-1)... ); 
@@ -70,15 +62,19 @@ end
   The function below also populates the integral arrays for G .* mask and mask, 
   from the corresponding patch ( TLF + interSize ) of G and mask. 
 """
-function prepare_inputs!( ::mask_NSQECC, G, F, mask, TLF, size_G, size_F, marg_F, tmp_data )
+function prepare_inputs!( ::mask_NSQECC, G, F, mask, TLF, scale, pivparams::PIVParameters, tmp_data )
+  prepare_inputs!( mask_NSQECC(), G, F, mask, TLF, _isize(pivparams,scale), _smarg(pivparams,scale), tmp_data )
+end
+
+function prepare_inputs!( ::mask_NSQECC, G, F, mask, TLF, size_G, marg_F, tmp_data )
 
   copy_inter_masked!(   tmp_data[1], G, mask, TLF, size_G );   
   copy_search_region!(  tmp_data[2],    F   , TLF, size_G, marg_F );   
   copy_inter_region!(   tmp_data[3],  mask  , TLF, size_G );  
   copy_search_squared!( tmp_data[4],    F   , TLF, size_G, marg_F );
 
-  integralArray!(   tmp_data[5],  mask  , TLF, size_G )
-  integralArraySQ!( tmp_data[6], G, mask, TLF, size_G )
+  integralArraySQ!( tmp_data[5], G, mask, TLF, size_G )
+  integralArray!(   tmp_data[6],  mask  , TLF, size_G )
 end
 
 """
@@ -111,11 +107,22 @@ end
   > sum( F^2 ) and sum( mask_G * F ) are computed with cross-correlations. 
   > sum( mask_G^2 ) is computed with integral arrays. 
 """
+function _mask_NSQECC!( pad_G, pad_F, pad_mask, pad_F2, int_G2, int_mask, 
+                        r2c, c2r, scale, pivparams::PIVParameters, ovp_th )
+  _mask_NSQECC!( pad_G, pad_F, pad_mask, pad_F2, int_G2, int_mask, r2c, c2r,
+                 _isize(pivparams,scale), _ssize(pivparams,scale), ovp_th )
+end
 
 function _mask_NSQECC!( pad_G::T , pad_F::T , pad_mask::T, 
                         pad_F2::T, int_G2::T, int_mask::T, 
-                        r2c, c2r, size_G, size_F, ovp_th=0.5
-                      ) where {T<:AbstractArray{<:AbstractFloat,2}}
+                        r2c, c2r, size_G::Dims{2}, size_F::Dims{2},
+                        ovp_th=0.5 ) where {T<:AbstractArray{<:AbstractFloat,2}}
+
+    # COMPUTING THE TOTAL NUMBER OF 1'S IN THE MASK
+    maxN = 0
+    for x in 1:size_G[2], y in 1:size_G[1]
+      @inbounds maxN += pad_mask[y,x]
+    end
 
     # CROSSCORRELATE (mask .* G) ⋆ F, WITH INPLACE REAL-DATA OPTIMIZATION. => sum( mask_G * F )
     _FFTCC!( pad_G, pad_F, r2c, c2r, size_G, size_F );
@@ -123,38 +130,45 @@ function _mask_NSQECC!( pad_G::T , pad_F::T , pad_mask::T,
     # CROSCORRELATE mask ⋆ F^2, WITH INPLACE REAL-DATA OPTIMIZATION. => sum( F^2 )
     _FFTCC!( pad_mask, pad_F2, r2c, c2r, size_G, size_F );
 
-    # USING INTEGRAL ARRAYS TO COMPUTE N & SUMG2 FOR EACH CCR-TRANSLATION AND COMPUTING NSQECC
+    pad_G .= 0.0; 
+    # USING INTEGRAL ARRAYS TO COMPUTE N & SUMG2 & NSQECC FORE EACH TRANSLATION
     TLx, BRx = 1, 0;
-    for x in 1:size(pad_G,2)-1      
+    for x in 1:size(pad_F,2)-1      
       TLx += Int(x > size_F[2]); 
       BRx += Int(x < size_G[2]); 
 
       TLy, BRy = 1, 0;
-      for y in 1:size(pad_G,1)-3
+      for y in 1:size(pad_F,1)-3
         TLy += Int(y > size_F[1]); 
         BRy += Int(y < size_G[1]); 
 
         N = integralArea( int_mask, (TLy,TLx), (BRy,BRx) );
-        if ( N < ovp_th ) 
-          pad_G[y,x] = 0; # Too little overlap between G and F, skip this translation.
-        else
-          sumG2 = integralArea( int_G2, (TLy,TLx), (BRy,BRx) );
-          sumF2 = abs( pad_F2[y,x] ); 
-          sumGF = pad_F[y,x]
-          pad_G[y,x] = 1/( 1 + ( sumG2 + sumF2 - 2*sumGF )/( sqrt( sumG2 )*sqrt( sumF2 ) ) ); 
-        end
+        ( N/maxN < ovp_th ) && ( continue; ) # Too little overlap
+        
+        sumG2 = abs( integralArea( int_G2, (TLy,TLx), (BRy,BRx) ) );
+        sumF2 = abs( pad_F2[y,x] ); 
+        sumGF = pad_F[y,x]
+        L2    = ( sumG2 + sumF2 - 2*sumGF )/( sqrt( sumG2 )*sqrt( sumF2 ) )
+        pad_G[y,x] = 1/( 1 + L2 ); 
+        
     end end
 end
 
 # 3D version ( 3 for loops instead of 2 ). 
 function _mask_NSQECC!( pad_G::T , pad_F::T , pad_mask::T, 
                         pad_F2::T, int_G2::T, int_mask::T, 
-                        r2c, c2r, size_G, size_F, ovp_th=0.5
-                      ) where {T<:AbstractArray{<:AbstractFloat,3}}
+                        r2c, c2r, size_G::Dims{3}, size_F::Dims{3},
+                        ovp_th=0.5 ) where {T<:AbstractArray{<:AbstractFloat,3}}
+
+    maxN = 0
+    for z in 1:size_G[3], x in 1:size_G[2], y in 1:size_G[1]
+      @inbounds maxN += pad_mask[y,x,z]
+    end
 
     _FFTCC!( pad_G, pad_F, r2c, c2r, size_G, size_F );
     _FFTCC!( pad_mask, pad_F2, r2c, c2r, size_G, size_F );
-
+    pad_G .= 0.0; 
+    
     TLFz, BRBz = 1, 0; 
     for z in 1:size_G[3];        TLFz += Int(z > size_F[3]); BRBz += Int(z < size_G[3]); 
       TLFx, BRBx = 1, 0; 
@@ -162,41 +176,38 @@ function _mask_NSQECC!( pad_G::T , pad_F::T , pad_mask::T,
         TLFy, BRBy = 1, 0;
         for y in 1:size_G[1];    TLFy += Int(y > size_F[1]); BRBy += Int(y < size_G[1]); 
 
-            if ( integralArea( int_mask, (TLFy,TLFx,TLFz), (BRBy,BRBx,BRBz) ) < ovp_th ) 
-              pad_G[y,x,z] = 0; 
-            else
-              sumG2 = integralArea( int_G2, (TLFy,TLFx,TLFz), (BRBy,BRBx,BRBz) )
-              sumF2 = abs( pad_F2[y,x,z] )
-              sumGF = pad_F[y,x,z]; 
-              pad_G[y,x,z] = 1/( 1 + ( sumG2 + sumF2 - 2*sumGF )/( sqrt( sumG2 )*sqrt( sumF2 ) ) ); 
-            end
+          N = integralArea( int_mask, (TLFy,TLFx,TLFz), (BRBy,BRBx,BRBz) )
+          ( N/maxN < ovp_th ) && ( continue; ) 
+
+          sumG2 = abs( integralArea( int_G2, (TLFy,TLFx,TLFz), (BRBy,BRBx,BRBz) ) )
+          sumF2 = abs( pad_F2[y,x,z] )
+          sumGF = pad_F[y,x,z]; 
+          L2    =  ( sumG2 + sumF2 - 2*sumGF )/( sqrt( sumG2 )*sqrt( sumF2 ) );
+          pad_G[y,x,z] = 1/( 1 + L2 ); 
 
     end end end
 end
 
-"""
-  Out-of-place implementation. 
+#=
+  OUT-OF-PLACE NSQECC FOR DEBUGGING. 
   
-  This is useful for non-piv applications and for debugging. 
-"""
+  IT ASSUMES THAT size(G) .+ size(F) .- 1 IS ODD. IT WILL FAIL IF THIS IS NOT THE CASE.
+=#
+function _mask_NSQECC_piv( G::Array{T,N}, F::Array{T,N}, mask::Array{<:Real,N}, ovp_th=0.5) where {T,N}
 
-function _mask_NSQECC( G::Array{T,N}, F::Array{T,N}, mask::Array{<:Real,N}, ovp_th=0.5) where {T,N}
+    tmp_data = allocate_tmp_data( mask_NSQECC(), size(G), size(F), sizeof(T)*8 )
 
-    tmp_data = allocate_tmp_data( mask_NSQECC(), size(G), size(F), precision=sizeof(T)*8 )
+    copy_inter_masked!( tmp_data[1], G, mask, (1,1), size(G) ); 
+    copy_inter_region!( tmp_data[2],    F   , (1,1), size(F) );
+    copy_inter_region!( tmp_data[3],   mask , (1,1), size(G) ); 
+    copy_inter_squared!( tmp_data[4],   F   , (1,1), size(F) ); 
 
-    tmp_data[1][Base.OneTo.(size(G))...] .= G .* mask
-    tmp_data[2][Base.OneTo.(size(F))...] .= F
-    tmp_data[3][Base.OneTo.(size(F))...] .= mask
-    tmp_data[4][Base.OneTo.(size(F))...] .= F .* F  
-
-    integralArraySQ!( tmp_data[5], G .* mask ); 
+    integralArraySQ!( tmp_data[5], G, mask ); 
     integralArray!( tmp_data[6], mask ); 
 
     _mask_NSQECC!( tmp_data..., size(G), size(F), ovp_th ); 
 
-    fftw_destroy_plan( tmp_data[7] )
-    fftw_destroy_plan( tmp_data[8] )
-    fftw_cleanup()
+    destroy_fftw_plans( mask_NSQECC(), tmp_data ); 
 
     return tmp_data[1], tmp_data[2]
 end

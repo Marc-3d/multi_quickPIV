@@ -9,23 +9,14 @@
 """
 function displacement_from_crosscorrelation( ::FFTCC, G, F, TLF, scale, pivparams, tmp_data )
 
-  # SIZES OF INTERROGATOIN REGION (G) AND SEARCH REGION (F). 
-  size_G = _isize( pivparams, scale ); 
-  marg_F = _smarg( pivparams, scale );
-  size_F = size_G .+ 2 .* marg_F;
-
   # COPYING INPUT DATA INTO THEIR RESPECTIVE PADDED ARRAYS
-  prepare_inputs!( FFTCC(), G, F, TLF, size_G, marg_F, tmp_data )
+  prepare_inputs!( FFTCC(), G, F, TLF, scale, pivparams, tmp_data )
 
   # COMPUTING NSQECC MATRIX INPLACE (ON PAD_G)
-  _FFTCC!( tmp_data..., size_G, size_F );
-
-  # FINDING MAXIMUM PEAK
-  peak, maxval = firstPeak( tmp_data[2] );
+  _FFTCC!( tmp_data..., scale, pivparams );
 
   # COMPUTE DISPLACEMENT
-  center = div.( size_F, 2 ) .+ div.( size_G, 2 ); 
-  displacement = gaussian_displacement( tmp_data[2], peak, maxval, center )
+  displacement = gaussian_displacement( tmp_data[2], scale, pivparams )
 
   return displacement
 end
@@ -43,8 +34,8 @@ end
 
 function allocate_tmp_data( ::FFTCC, isize::Dims{N}, ssize::Dims{N}, precision=32 ) where {N}
 
-  # By definition the cross-correlation size for each dimension is "Ni + Mi - 1". In our case,
-  # this computation always leads to odd numbers:
+  # By definition the cross-correlation size for each dimension is "Ni + Mi - 1". In PIV, this
+  # computation always leads to odd numbers:
   #
   #    isize + ( isize + 2*smargin ) - 1   =   2*( isize + smargin ) - 1
   #
@@ -69,6 +60,10 @@ end
   search margin around the interrogation area.  With this information we can copy the 
   interrogation/search regions into the padded arrays.
 """
+function prepare_inputs!( ::FFTCC, G, F, TLF, scale, pivparams, tmp_data )
+  prepare_inputs!( FFTCC(), G, F, TLF, _isize(pivparams,scale), _smarg(pivparams,scale), tmp_data ) 
+end
+
 function prepare_inputs!( ::FFTCC, G, F, TLF, size_G, marg_F, tmp_data )
   copy_inter_region!(  tmp_data[1], G, TLF, size_G );  
   copy_search_region!( tmp_data[2], F, TLF, size_G, marg_F );   
@@ -90,25 +85,29 @@ end
   
   Read FFTW's document for detailed information.
 """
+function _FFTCC!( pad_G, pad_F, r2c_plan, c2r_plan, scale, pivparams::PIVParameters )
+  return _FFTCC!( pad_G, pad_F, r2c_plan, c2r_plan, _isize(pivparams,scale), _ssize(pivparams,scale) ); 
+end
+
 function _FFTCC!( pad_G::Array{T,N}, pad_F::Array{T,N}, r2c_plan, c2r_plan, size_G, size_F ) where {T<:AbstractFloat,N}
 
-  # forward in-place transforms of pad_G and pad_F. 
+  # FORWARD IN-PLACE TRANSFORMS OF PAD_G AND PAD_F. 
   execute_plan!( r2c_plan, pad_G )
   execute_plan!( r2c_plan, pad_F )
 
-  # conj( pad_F ) .* pad_G.
+  # CONJ(PAD_F) .* PAD_G
   corr_dot!( pad_G, pad_F )
 
-  # inverse in-place transform of pad_G.
+  # INVERSE IN-PLACE TRANSFORM OF PAD_G
   execute_plan!( c2r_plan, pad_G )
 
-  # normalizing the results, otherwise r2c/c2r scales them by the number of inputs
+  # NORMALIZING THE RESULTS, OTHERWISE R2C/C2R SCALES BY THE NUMBER OF INPUTS
   pad_G ./= T( prod( size_G .+ size_F ) )
 
-  # circshifted results are stored in pad_F. 
+  # CIRCSHIFTED RESULTS ARE STORED IN PAD_F. 
   r2cpad = 2;
   shifts = size_F .- 1
-  # TODO: check if using views leads to less allocations
+  # TODO: CHECK IF USING VIEWS LEADS TO LESS ALLOCATIONS AND SAME SPEED
   circshift!( view( pad_F, 1:size(pad_F,1)-r2cpad, Base.OneTo.( size(pad_F)[2:end] )... ), 
               view( pad_G, 1:size(pad_G,1)-r2cpad, Base.OneTo.( size(pad_G)[2:end] )... ),
               shifts )
@@ -117,24 +116,32 @@ function _FFTCC!( pad_G::Array{T,N}, pad_F::Array{T,N}, r2c_plan, c2r_plan, size
 end
 
 #=
-  Out-of-place FFTCC for debugging. 
+  OUT-OF-PLACE FFTCC FOR DEBUGGING. 
   
-  It assumes that size(G) .+ size(F) .- 1 is odd. It will fail if this is not the case.
+  IT ASSUMES THAT size(G) .+ size(F) .- 1 IS ODD. IT WILL FAIL IF THIS IS NOT THE CASE.
 =#
 function _FFTCC_piv( G::Array{T,N}, F::Array{T,N}; precision=32 ) where {T,N}
 
   @assert all( iseven.( size(G) .+ size(F) ) ) "FFTCC will fail"
+  println( "debugging FFT cross-correlation" ) 
 
-  println( "debugging FFT cross-correlation" ); 
   tmp_data = allocate_tmp_data( FFTCC(), size(G), size(F), precision )
   tmp_data[1][Base.OneTo.(size(G))...] .= G
   tmp_data[2][Base.OneTo.(size(F))...] .= F
-  _FFTCC!( tmp_data..., size(G), size(F) ); 
-  fftw_destroy_plan( tmp_data[3] )
-  fftw_destroy_plan( tmp_data[4] )
-  fftw_cleanup()
+
+  _FFTCC!( tmp_data..., size(G), size(F) ) 
+
+  destroy_fftw_plans( FFTCC(), tmp_data )
+
   return tmp_data[1], tmp_data[2]
 end
+
+
+
+
+
+
+
 
 
 
@@ -152,6 +159,7 @@ end
   This influences the construction of the r2c/c2r plans and the circshifting
   of the cross-correlation in the frequency domain. 
 """
+
 function _FFTCC( G::Array{T,N}, F::Array{T,N}; precision=32 ) where {T,N}
 
     println( "running non-piv FFT cross-correlation" ); 
@@ -161,11 +169,9 @@ function _FFTCC( G::Array{T,N}, F::Array{T,N}; precision=32 ) where {T,N}
     tmp_data[1][Base.OneTo.(size(G))...] .= G
     tmp_data[2][Base.OneTo.(size(F))...] .= F
     
-    _FFTCC_nopiv!( tmp_data..., size(G), size(F) ); 
+    _FFTCC_nopiv!( tmp_data..., size(G), size(F) ) 
 
-    fftw_destroy_plan( tmp_data[3] )
-    fftw_destroy_plan( tmp_data[4] )
-    fftw_cleanup()
+    destroy_fftw_plans( FFTCC(), tmp_data )
 
     return tmp_data[1], tmp_data[2]
 end

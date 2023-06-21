@@ -109,32 +109,31 @@ end
 
 # MODIFIED FUNCTIONS TO COPY DATA INTO PADDED ARRAYS FOR MASKED_NSQECC
 
-function copy_inter_masked!( pad_inter, inp1, mask, TLF, inter_size )
+function copy_inter_masked!( pad_inter, inp1, mask, TLF, isize )
 
-    BRB = TLF .+ inter_size .- 1 
-    @inbounds pad_inter[ Base.OneTo.( inter_size ) ]  .= inp1[ UnitRange.( TLF, BRB ) ]
-    @inbounds pad_inter[ Base.OneTo.( inter_size ) ] .*= mask[ UnitRange.( TLF, BRB ) ]
+    BRB = TLF .+ isize .- 1 
+    pad_inter .= 0.0
+    @inbounds pad_inter[ Base.OneTo.(isize)... ]  .= inp1[ UnitRange.(TLF, BRB)... ]
+    @inbounds pad_inter[ Base.OneTo.(isize)... ] .*= mask[ UnitRange.(TLF, BRB)... ]
 end
 
-function copy_search_squared!( pad_search, inp2, TLF, inter_size, search_margin )
+function copy_inter_squared!( pad_inter, inp1, TLF, isize )
 
-    search_size = 2 .* inter_size .+ 2 .* search_margin;
+    BRB = TLF .+ isize .- 1 
+    pad_inter .= 0.0
+    @inbounds pad_inter[ Base.OneTo.( isize )... ]  .= inp1[ UnitRange.( TLF, BRB )... ]
+    @inbounds pad_inter[ Base.OneTo.( isize )... ] .*= inp1[ UnitRange.( TLF, BRB )... ]
+end
 
-    BRB = TLF .+ inter_size .- 1 ; 
+function copy_search_squared!( pad_search, inp2, TLF, isize, smarg )
+
+    BRB = TLF .+ isize .- 1 ; 
  
-    outofbounds_TLF  = abs.( min.( TLF .- search_margin .- 1, 0 ) ); 
-    search_coords    = UnitRange.( max.( 1, TLF .- search_margin ), min.( size(inp2), BRB .+ search_margin ) );
+    outofbounds_TLF  = abs.( min.( TLF .- smarg .- 1, 0 ) ); 
+    search_coords    = UnitRange.( max.( 1, TLF .- smarg ), min.( size(inp2), BRB .+ smarg ) );
     padsearch_coords = UnitRange.( outofbounds_TLF .+ 1, outofbounds_TLF .+ length.( search_coords ) );
 
-    @inbounds pad_search[ Base.OneTo.( search_size ) ] .= 0.0
-    @inbounds pad_search[ padsearch_coords ]  .= inp2[ search_coords ]; 
-    @inbounds pad_search[ padsearch_coords ] .*= inp2[ search_coords ]; 
-end
-
-# COMPUTING BBOX FOR INTEGRAL SUMS
-
-function nsqecc_integral_coords( dim_index, size_F, size_G )
-    y0 = 1 - min( 0, size_F - dim_index  ); 
-    y1 = min( size_G, dim_index );
-    return y0, y1
+    pad_search .= 0.0
+    @inbounds pad_search[ padsearch_coords... ]  .= inp2[ search_coords... ]; 
+    @inbounds pad_search[ padsearch_coords... ] .*= inp2[ search_coords... ]; 
 end

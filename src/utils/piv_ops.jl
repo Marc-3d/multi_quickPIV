@@ -28,8 +28,8 @@ function allocate_outputs( input_size::Dims{N}, pivparams, precision=32 ) where 
 
     VFsize = get_VF_size( input_size, pivparams, 1 );
     VFtype = ( precision == 32 ) ? Float32 : Float64; 
-    VF = Array{VFtype, N+1}( undef, N, VFsize... ); 
-    SN = ( pivparams.computeSN ) ? Array{VFtype,N}( undef, VFsize... ) : nothing;
+    VF = zeros( VFtype, N, VFsize... ); #Array{VFtype, N+1}( undef, N, VFsize... ); 
+    SN = ( pivparams.computeSN ) ? zeros( VFtype, VFsize... ) : nothing;
 
     return VF, SN
 end
@@ -37,7 +37,7 @@ end
 """
     Finding the TLF coordinates of the "i"th interrogation region.
 """
-function get_interrogation_origin( vf_idx, vf_size::Dims{N}, pivparams, scale=1 ) where {N}
+function get_interrogation_origin( vf_idx, vf_size::Dims{N}, scale, pivparams ) where {N}
 
     vf_coords = linear2cartesian_2( vf_idx, size2strides(vf_size) ); 
     isize     = _isize(pivparams, scale);
