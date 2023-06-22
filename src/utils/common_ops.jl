@@ -5,7 +5,6 @@
 # iBRB = interrogation region bottom-right-back corner
 
 function copy_inter_region!( pad_inter, inp1,  iTLF, isize )
-    # Because inplace FFTs, we need to reset the pad_array 
     pad_inter .= 0.0; 
     iBRB = iTLF .+ isize .- 1;
     @inbounds pad_inter[ Base.OneTo.(isize)... ] .= inp1[ UnitRange.(iTLF,iBRB)... ]
@@ -15,9 +14,8 @@ function copy_search_region!( pad_search, inp2, iTLF, isize, smarg )
 
     iBRB = iTLF .+ isize .- 1; 
 
-    # For search regions, both TLF and BRB may extends outside of the input array. 
-    # The TLF outofbounds extension of the search region needs to be accounted  
-    # when copying the input array into the padded search array. 
+    # For search regions, TLF and BRB may extend outside of the input data. The TLF 
+    # outofbounds extension needs to be accounted when copying into the padded search array.
     outofbounds_sTLF = abs.( min.( iTLF .- smarg .- 1, 0 ) ); 
     search_coords    = UnitRange.( max.( 1, iTLF .- smarg ), min.( size(inp2), iBRB .+ smarg ) );
     padsearch_coords = UnitRange.( outofbounds_sTLF .+ 1, outofbounds_sTLF .+ length.( search_coords ) );
@@ -32,10 +30,11 @@ end
 function skip_inter_region( input, iTLF, scale, pivparams )
     if pivparams.threshold < 0
         return false
+    else
+        isize = _isize(pivparams,scale)
+        inter_view = view( input, UnitRange.( iTLF, iTLF .+ isize .- 1 )... ); 
+        return pivparams.filtFun( inter_view ) < pivparams.threshold
     end
-    isize      = _isize(pivparams,scale)
-    inter_view = view( input, UnitRange.( iTLF, iTLF .+ isize .- 1 )... ); 
-    return pivparams.filtFun( inter_view ) < pivparams.threshold
 end
 
 # FINDING MAX PEAK IN THE CROSS-CORRELATION MATRIX
@@ -146,12 +145,18 @@ end
 # GAUSSIAN SUBPIXEL WORKS FINE IN ALL PRACTICAL CASES.
 # ----------------------------------------------------
 
-function gaussian_displacement( corr_mat, scale, pivparams )
+function gaussian_displacement( corr_mat, scale, pivparams::PIVParameters )
     # max cross-correlation peak
     peak, maxval = firstPeak( corr_mat )
     # cross-correlation center
     center = div.( _isize( pivparams, scale ), 2 ) .+ div.( _ssize( pivparams, scale ), 2 )
     # applying gaussian refinement
+    return gaussian_refinement( corr_mat, peak, maxval ) .- center
+end
+
+function gaussian_displacement( corr_mat, isize::Dims{N}, ssize::Dims{N} ) where {N}
+    peak, maxval = firstPeak( corr_mat )
+    center = div.( isize, 2 ) .+ div.( ssize, 2 )
     return gaussian_refinement( corr_mat, peak, maxval ) .- center
 end
 
@@ -166,22 +171,22 @@ end
 
 # 3-point Gaussian subpixel 2D from the pixel neighbourhood around the max peak 
 function gaussian( corr_mat::Array{T,2}, peak, maxval::T, minval::T=0 ) where {T}
-    return gaussian_2D( log(corr_mat[peak[1]+1,peak[2]]-minval), 
-                        log(corr_mat[peak[1]-1,peak[2]]-minval), 
-                        log(corr_mat[peak[1],peak[2]-1]-minval), 
-                        log(corr_mat[peak[1],peak[2]+1]-minval), 
-                        log(maxval-minval) ); 
+    return gaussian_2D( log(1+corr_mat[peak[1]+1,peak[2]]-minval), 
+                        log(1+corr_mat[peak[1]-1,peak[2]]-minval), 
+                        log(1+corr_mat[peak[1],peak[2]-1]-minval), 
+                        log(1+corr_mat[peak[1],peak[2]+1]-minval), 
+                        log(1+maxval-minval) ); 
 end
 
 # 3-point Gaussian subpixel 3D from the voxel neighbourhood around the max peak
 function gaussian( corr_mat::Array{T,3}, peak, maxval::T, minval::T=0 ) where {T<:AbstractFloat} 
-    return gaussian_3D( log(corr_mat[peak[1]+1,peak[2],peak[3]]-minval), 
-                        log(corr_mat[peak[1]-1,peak[2],peak[3]]-minval), 
-                        log(corr_mat[peak[1],peak[2]-1,peak[3]]-minval), 
-                        log(corr_mat[peak[1],peak[2]+1,peak[3]]-minval), 
-                        log(corr_mat[peak[1],peak[2],peak[3]-1]-minval), 
-                        log(corr_mat[peak[1],peak[2],peak[3]+1]-minval),
-                        log(maxval-minval) ); 
+    return gaussian_3D( log(1+corr_mat[peak[1]+1,peak[2],peak[3]]-minval), 
+                        log(1+corr_mat[peak[1]-1,peak[2],peak[3]]-minval), 
+                        log(1+corr_mat[peak[1],peak[2]-1,peak[3]]-minval), 
+                        log(1+corr_mat[peak[1],peak[2]+1,peak[3]]-minval), 
+                        log(1+corr_mat[peak[1],peak[2],peak[3]-1]-minval), 
+                        log(1+corr_mat[peak[1],peak[2],peak[3]+1]-minval),
+                        log(1+maxval-minval) ); 
 end
 
 function gaussian_2D( up::T, down::T, left::T, right::T, mx::T ) where {T<:AbstractFloat}

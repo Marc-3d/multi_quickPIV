@@ -120,10 +120,10 @@ end
   
   IT ASSUMES THAT size(G) .+ size(F) .- 1 IS ODD. IT WILL FAIL IF THIS IS NOT THE CASE.
 =#
-function _FFTCC_piv( G::Array{T,N}, F::Array{T,N}; precision=32 ) where {T,N}
+function _FFTCC_piv( G::Array{T,N}, F::Array{T,N}; precision=32, silent=true ) where {T,N}
 
-  @assert all( iseven.( size(G) .+ size(F) ) ) "FFTCC will fail"
-  println( "debugging FFT cross-correlation" ) 
+  silent || @assert all( iseven.( size(G) .+ size(F) ) ) "FFTCC will fail"
+  silent || println( "debugging FFT cross-correlation" ) 
 
   tmp_data = allocate_tmp_data( FFTCC(), size(G), size(F), precision )
   tmp_data[1][Base.OneTo.(size(G))...] .= G
@@ -160,9 +160,9 @@ end
   of the cross-correlation in the frequency domain. 
 """
 
-function _FFTCC( G::Array{T,N}, F::Array{T,N}; precision=32 ) where {T,N}
+function _FFTCC( G::Array{T,N}, F::Array{T,N}; precision=32, silent=true ) where {T,N}
 
-    println( "running non-piv FFT cross-correlation" ); 
+    silent || println( "running non-piv FFT cross-correlation" ); 
 
     tmp_data = allocate_tmp_data_nopiv( FFTCC(), size(G), size(F), precision=precision )
     

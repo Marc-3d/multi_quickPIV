@@ -160,7 +160,7 @@ end
   
   IT ASSUMES THAT size(G) .+ size(F) .- 1 IS ODD. IT WILL FAIL IF THIS IS NOT THE CASE.
 =#
-function _NSQECC_piv( G::Array{T,N}, F::Array{T,N}; precision=32 ) where {T,N}
+function _NSQECC_piv( G::Array{T,N}, F::Array{T,N}; precision=32, silent=true ) where {T,N}
 
   tmp_data = allocate_tmp_data( NSQECC(), size(G), size(F), precision )
   
@@ -197,9 +197,9 @@ end
   This influences the construction of the r2c/c2r plans and the circshifting
   of the cross-correlation in the frequency domain. 
 """
-function _NSQECC( G::Array{T,N}, F::Array{T,N}; precision=32 ) where {T,N}
+function _NSQECC( G::Array{T,N}, F::Array{T,N}; precision=32, silent=true ) where {T,N}
 
-    println( "running non-piv NSQECC cross-correlation" ); 
+    silent || println( "running non-piv NSQECC cross-correlation" ); 
 
     tmp_data = allocate_tmp_data_nopiv( NSQECC(), size(G), size(F), precision )
     
@@ -217,8 +217,8 @@ end
 function allocate_tmp_data_nopiv( ::NSQECC, isize::Dims{N}, ssize::Dims{N}, precision=32 ) where {N}
   T          = ( precision == 32 ) ? Float32 : Float64; 
   csize      = isize .+ ssize .- 1; 
-  pad        = 1 + iseven( csize[1] )         
-  pad_csize  = csize .+ ( pad, zeros(Int,N-1)... );  
+  r2cpad     = 1 + iseven( csize[1] )         
+  pad_csize  = csize .+ ( r2cpad, zeros(Int,N-1)... );  
   pad_inter  = zeros( T, pad_csize ); 
   pad_search = zeros( T, pad_csize ); 
   int_search = zeros( T, ssize .+ 1 ); 
