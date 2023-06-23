@@ -4,9 +4,9 @@
 # iTLF = interrogation region top-left-front corner
 # iBRB = interrogation region bottom-right-back corner
 
-function copy_inter_region!( pad_inter, inp1,  iTLF, isize )
-    pad_inter .= 0.0; 
+function copy_inter_region!( pad_inter, inp1, iTLF, isize )
     iBRB = iTLF .+ isize .- 1;
+    pad_inter .= 0.0; 
     @inbounds pad_inter[ Base.OneTo.(isize)... ] .= inp1[ UnitRange.(iTLF,iBRB)... ]
 end
 
@@ -31,7 +31,7 @@ function skip_inter_region( input, iTLF, scale, pivparams )
     if pivparams.threshold < 0
         return false
     else
-        isize = _isize(pivparams,scale)
+        isize = _isize( pivparams, scale )
         inter_view = view( input, UnitRange.( iTLF, iTLF .+ isize .- 1 )... ); 
         return pivparams.filtFun( inter_view ) < pivparams.threshold
     end

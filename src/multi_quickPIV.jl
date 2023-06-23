@@ -43,8 +43,8 @@ function PIV_singlethreaded( input1::AbstractArray{<:Real,N}, input2::AbstractAr
 
         # PREALLOCATING CROSS-CORRELATION DATA
         tmp_data = allocate_tmp_data( pivparams.corr_alg, scale, pivparams, precision )
+		vf_size  = get_VF_size( size1, pivparams, scale )
 
-		vf_size = get_VF_size( size1, pivparams, scale )
         for vf_idx in 1:prod( vf_size )
             
         	# FOR EACH INTERROGATION/SEARCH PAIR IN THE CURRENT SCALE

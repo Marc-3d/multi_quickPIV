@@ -70,11 +70,12 @@ end
 """
     corr( F, G ) = IFFT( conj( FFT( F ) ) .* FFT( G ) )
 
-    Implementing element-wise complex multiplication given that FFT(F)
-    and FFT(G) are stores as real arrays in r2c interleaved format.
-"""
+    Implementing element-wise complex multiplication with conjugate 
+    FFT(F), given that FFT(F) and FFT(G) are stores as real arrays 
+    in r2c interleaved format.
 
-# ( a + bi )( c + di ) = ac + adi + cbi - bd = ac - bd + ( ad + cb )i
+    This funciton relies on the fact that length(pad_G) == even
+"""
 
 function corr_dot!( pad_G, pad_F )
     @inbounds @simd for idx in 1:2:length(pad_G)
@@ -82,6 +83,25 @@ function corr_dot!( pad_G, pad_F )
         b = pad_G[idx+1]
         c = pad_F[ idx ]
         d = -1 * pad_F[idx+1]
+        pad_G[ idx ] = a*c - b*d
+        pad_G[idx+1] = a*d + c*b
+    end
+end
+
+"""
+    conv( F, G ) = IFFT( FFT( F ) ) .* FFT( G ) )
+
+    Implementing element-wise complex multiplication given that FFT(F)
+    and FFT(G) are stores as real arrays in r2c interleaved format.
+"""
+
+# ( a + bi )( c + di ) = ac + adi + cbi - bd = ac - bd + ( ad + cb )i
+
+function conv_dot!( pad_G, pad_F )
+    @inbounds @simd for idx in 1:2:length(pad_G)
+        a = pad_G[ idx ]
+        b = pad_G[idx+1]
+        c = pad_F[ idx ]
         pad_G[ idx ] = a*c - b*d
         pad_G[idx+1] = a*d + c*b
     end

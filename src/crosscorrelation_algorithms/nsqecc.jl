@@ -7,7 +7,7 @@
   at each translation of the cross-correlation matrix. L2 can be computed with 1 
   cross-correlation, and integral areas to compute sum_F^2 at each translation.
 """
-function displacement_from_crosscorrelation( ::NSQECC, G, F, TLF, scale, pivparams, tmp_data )  
+function displacement_from_crosscorrelation( ::NSQECC, G, F, TLF, scale, pivparams::PIVParameters, tmp_data )  
 
   # COPYING INPUT DATA INTO THEIR RESPECTIVE PADDED ARRAYS.
   prepare_inputs!( NSQECC(), G, F, TLF, scale, pivparams, tmp_data )
@@ -29,7 +29,7 @@ end
     [4] FFT_plan_forward : forward r2c FFT plan ( inplace )
     [5] FFT_plan_inverse : inverse c2r FFT plan ( inplace )
 """
-function allocate_tmp_data( ::NSQECC, scale, pivparams, precision=32 )
+function allocate_tmp_data( ::NSQECC, scale, pivparams::PIVParameters, precision=32 )
   return allocate_tmp_data( NSQECC(), _isize(pivparams, scale), _ssize(pivparams, scale), precision )
 end
 
@@ -59,11 +59,11 @@ function prepare_inputs!( ::NSQECC, G, F, TLF, scale, pivparams::PIVParameters, 
   prepare_inputs!( NSQECC(), G, F, TLF, _isize(pivparams,scale), _smarg(pivparams,scale), tmp_data ) 
 end
 
-function prepare_inputs!( ::NSQECC, G, F, TLF, size_G, marg_F, tmp_data )
+function prepare_inputs!( ::NSQECC, G, F, TLF, size_G::Dims{N}, marg_F::Dims{N}, tmp_data ) where {N}
 
   copy_inter_region!( tmp_data[1], G, TLF, size_G );          
   copy_search_region!( tmp_data[2], F, TLF, size_G, marg_F );
-  integralArraySQ!( tmp_data[3], tmp_data[2], (1,1), size_G .+ 2 .* marg_F ); 
+  integralArraySQ!( tmp_data[3], tmp_data[2], ones(Int64,N), size_G .+ 2 .* marg_F ); 
 end
 
 """
@@ -140,7 +140,7 @@ function _NSQECC!( pad_G::Array{T,3}, pad_F::Array{T,3}, int2_F::Array{T,3}, r2c
 
   pad_G     .= 0.0;
   ovp0, ovp1 = size_G, size(pad_F) .- size_G .+ 1; 
-  TLFs, BRBs = size_F .- size_G, size_F .+ 1; 
+  TLFs, BRBs = size_F .- size_G .+ 2, size_F .+ 1; 
 
   TLFz, BRBz = TLFs[3], BRBs[3]
   for z in ovp0[3]:ovp1[3]-1;      TLFz -= 1;  BRBz -= 1; 

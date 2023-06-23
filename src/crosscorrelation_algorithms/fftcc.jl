@@ -60,7 +60,7 @@ end
   search margin around the interrogation area.  With this information we can copy the 
   interrogation/search regions into the padded arrays.
 """
-function prepare_inputs!( ::FFTCC, G, F, TLF, scale, pivparams, tmp_data )
+function prepare_inputs!( ::FFTCC, G, F, TLF, scale, pivparams::PIVParameters, tmp_data )
   prepare_inputs!( FFTCC(), G, F, TLF, _isize(pivparams,scale), _smarg(pivparams,scale), tmp_data ) 
 end
 
@@ -89,7 +89,7 @@ function _FFTCC!( pad_G, pad_F, r2c_plan, c2r_plan, scale, pivparams::PIVParamet
   return _FFTCC!( pad_G, pad_F, r2c_plan, c2r_plan, _isize(pivparams,scale), _ssize(pivparams,scale) ); 
 end
 
-function _FFTCC!( pad_G::Array{T,N}, pad_F::Array{T,N}, r2c_plan, c2r_plan, size_G, size_F ) where {T<:AbstractFloat,N}
+function _FFTCC!( pad_G::Array{T,N}, pad_F::Array{T,N}, r2c_plan, c2r_plan, size_G::Dims{N}, size_F::Dims{N} ) where {T<:AbstractFloat,N}
 
   # FORWARD IN-PLACE TRANSFORMS OF PAD_G AND PAD_F. 
   execute_plan!( r2c_plan, pad_G )
@@ -105,11 +105,11 @@ function _FFTCC!( pad_G::Array{T,N}, pad_F::Array{T,N}, r2c_plan, c2r_plan, size
   pad_G ./= T( prod( size_G .+ size_F ) )
 
   # CIRCSHIFTED RESULTS ARE STORED IN PAD_F. 
-  r2cpad = 2;
+  r2cpad = ( 2, zeros( Int64, N - 1 )... ); 
   shifts = size_F .- 1
   # TODO: CHECK IF USING VIEWS LEADS TO LESS ALLOCATIONS AND SAME SPEED
-  circshift!( view( pad_F, 1:size(pad_F,1)-r2cpad, Base.OneTo.( size(pad_F)[2:end] )... ), 
-              view( pad_G, 1:size(pad_G,1)-r2cpad, Base.OneTo.( size(pad_G)[2:end] )... ),
+  circshift!( view( pad_F, Base.OneTo.( size(pad_F) .- r2cpad )... ), 
+              view( pad_G, Base.OneTo.( size(pad_G) .- r2cpad )... ),
               shifts )
 
   return nothing

@@ -109,6 +109,7 @@ end
 """
 function _mask_NSQECC!( pad_G, pad_F, pad_mask, pad_F2, int_G2, int_mask, 
                         r2c, c2r, scale, pivparams::PIVParameters, ovp_th )
+                        
   _mask_NSQECC!( pad_G, pad_F, pad_mask, pad_F2, int_G2, int_mask, r2c, c2r,
                  _isize(pivparams,scale), _ssize(pivparams,scale), ovp_th )
 end
@@ -125,7 +126,7 @@ function _mask_NSQECC!( pad_G::T , pad_F::T , pad_mask::T,
     end
 
     # CROSSCORRELATE (mask .* G) ⋆ F, WITH INPLACE REAL-DATA OPTIMIZATION. => sum( mask_G * F )
-    _FFTCC!( pad_G, pad_F, r2c, c2r, size_G, size_F );
+    _FFTCC!( pad_G   , pad_F , r2c, c2r, size_G, size_F );
 
     # CROSCORRELATE mask ⋆ F^2, WITH INPLACE REAL-DATA OPTIMIZATION. => sum( F^2 )
     _FFTCC!( pad_mask, pad_F2, r2c, c2r, size_G, size_F );
@@ -165,16 +166,17 @@ function _mask_NSQECC!( pad_G::T , pad_F::T , pad_mask::T,
       @inbounds maxN += pad_mask[y,x,z]
     end
 
-    _FFTCC!( pad_G, pad_F, r2c, c2r, size_G, size_F );
+    _FFTCC!( pad_G   , pad_F , r2c, c2r, size_G, size_F );
     _FFTCC!( pad_mask, pad_F2, r2c, c2r, size_G, size_F );
+    
     pad_G .= 0.0; 
     
     TLFz, BRBz = 1, 0; 
-    for z in 1:size_G[3];        TLFz += Int(z > size_F[3]); BRBz += Int(z < size_G[3]); 
+    for z in 1:size(pad_F,3)-1;        TLFz += Int(z > size_F[3]); BRBz += Int(z < size_G[3]); 
       TLFx, BRBx = 1, 0; 
-      for x in 1:size_G[2];      TLFx += Int(x > size_F[2]); BRBx += Int(x < size_G[2]); 
+      for x in 1:size(pad_F,2)-1;      TLFx += Int(x > size_F[2]); BRBx += Int(x < size_G[2]); 
         TLFy, BRBy = 1, 0;
-        for y in 1:size_G[1];    TLFy += Int(y > size_F[1]); BRBy += Int(y < size_G[1]); 
+        for y in 1:size(pad_F,1)-3;    TLFy += Int(y > size_F[1]); BRBy += Int(y < size_G[1]); 
 
           N = integralArea( int_mask, (TLFy,TLFx,TLFz), (BRBy,BRBx,BRBz) )
           ( N/maxN < ovp_th ) && ( continue; ) 
