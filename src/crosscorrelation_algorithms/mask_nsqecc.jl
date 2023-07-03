@@ -17,6 +17,7 @@ function displacement_from_crosscorrelation( ::mask_NSQECC, G, F, mask, TLF, sca
   _mask_NSQECC!( tmp_data..., scale, pivparams, pivparams.ovp_th )  
 
   # COMPUTE DISPLACEMENT
+  tmp_data[1][ Base.UnitRange.(   size(tmp_data[1]) .- (3,0,0), size(tmp_data[1]) )... ] .= 0.0
   displacement = gaussian_displacement( tmp_data[1], scale, pivparams )
   
   return displacement

@@ -22,7 +22,6 @@ function PIV( input1, input2, mask, pivparams::PIVParameters, precision=32 )
 end
 
 
-
 """
 	Single threaded PIV implementations (default). 
 """
@@ -96,7 +95,8 @@ function PIV_singlethreaded_masked( input1::AbstractArray{<:Real,N}, input2::Abs
 			skip_inter_region( mask, IA_TLF, scale, pivparams ) && ( continue; )
 
             displacement = displacement_from_crosscorrelation( mask_NSQECC(), input1, input2, mask, IA_TLF, scale, pivparams, tmp_data )
-            update_vectorfield!( VF, counts, displacement, vf_idx, size1, pivparams, scale )
+
+			update_vectorfield!( VF, counts, displacement, vf_idx, size1, pivparams, scale )
 			
             ( scale == 1 && pivparams.computeSN ) && ( SN[vf_idx] = compute_SN( pivparams, tmp_data ); )
         end
