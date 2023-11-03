@@ -13,7 +13,7 @@ include("./crosscorrelation_algorithms/fftcc.jl")
 include("./crosscorrelation_algorithms/zncc.jl")
 include("./crosscorrelation_algorithms/nsqecc.jl")
 include("./crosscorrelation_algorithms/mask_nsqecc.jl")
-include("./convolution_algorithms/fftc.jl")
+#include("./convolution_algorithms/fftc.jl")
 
 # STANDARD PIV 
 function PIV( input1, input2, pivparams::PIVParameters; precision=32 )
