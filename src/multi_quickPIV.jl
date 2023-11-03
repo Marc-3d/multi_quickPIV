@@ -119,7 +119,7 @@ end
     Multithreaded PIV. This is the default if julia is launched with multiple threads. 
 """
 function PIV_multithreaded( input1::AbstractArray{<:Real,N}, input2::AbstractArray{<:Real,N}, 
-						 	pivparams::PIVParameters, precision=32 )
+						 	pivparams::PIVParameters, precision=32 ) where {N}
 
 	size1, size2 = size(input1), size(input2);
 	@assert all( size1 .== size2 ) "PIV inputs need to have the same size."
