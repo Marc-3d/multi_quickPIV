@@ -1,77 +1,96 @@
-
 """ 
-  This function is the workhorse of PIV. It computes in-place cross-correlation of
-  a pair of interrogation/search regions and computes a displacement vector. 
-
-  This function corresponds to unnormalized cross-correlation computed with FFTs.
-  It is the fastest form of cross-correlation, but also the least robust. It is 
-  expected to work with nuclear labelled images, but not with non-segmentable data.
+  This function computes unnormalized cross-correlation in the frequency domain.
+  It is the fastest  form of cross-correlation, but also the least robust. It is 
+  expected to work accurately on traditional PIV datasets: bright dots moving 
+  on a black background. In biology, you might get accurate results if you are
+  analyzing the migration of fluorescently labelled nuclei, as they resemble 
+  "bright dots on a black background".
 """
-function displacement_from_crosscorrelation( ::FFTCC, G, F, TLF, scale, pivparams, tmp_data )
 
-  # COPYING INPUT DATA INTO THEIR RESPECTIVE PADDED ARRAYS
-  prepare_inputs!( FFTCC(), G, F, TLF, scale, pivparams, tmp_data )
+function displacement_from_crosscorrelation( ::FFTCC, scale, pivparams::PIVParameters, tmp_data )
 
-  # COMPUTING NSQECC MATRIX INPLACE (ON PAD_G)
   _FFTCC!( tmp_data..., scale, pivparams );
 
-  # COMPUTE DISPLACEMENT
-  displacement = gaussian_displacement( tmp_data[2], scale, pivparams )
+  displacement = gaussian_displacement( tmp_data[1], scale, pivparams )
 
   return displacement
 end
 
+
 """
-  In order to compute FFTCC we need: 
+  In order to compute FFT cross-correlation we need: 
     [1] Array{Float32/64,N}: padded interr_region for r2c/c2r FFT
     [2] Array{Float32/64,N}: padded search_region for r2c/c2r FFT
     [3] FFT_plan_forward   : forward r2c FFT plan ( inplace )
     [4] FFT_plan_inverse   : inverse c2r FFT plan ( inplace )
+    [5] r2c_pad            : we keep track of the padding used for r2c 
+    [6] corr_pad           : we keep track of optimization corr padding
 """
-function allocate_tmp_data( ::FFTCC, scale, pivparams, precision=32 )
-    return allocate_tmp_data( FFTCC(), _isize(pivparams,scale), _ssize(pivparams,scale), precision )
+
+function allocate_tmp_data( ::FFTCC, scale, pivparams::PIVParameters, precision=32 )
+
+    return allocate_tmp_data( FFTCC(), _isize(pivparams,scale), _ssize(pivparams,scale),
+                              precision=precision, unpadded=pivparams.unpadded, 
+                              good_pad=pivparams.good_pad, odd_pad=pivparams.odd_pad
+                             )
 end
 
-function allocate_tmp_data( ::FFTCC, isize::Dims{N}, ssize::Dims{N}, precision=32 ) where {N}
+function allocate_tmp_data( ::FFTCC, 
+                            isize::Dims{N},   # size of interrogation regions
+                            ssize::Dims{N};   # size of search regions
+                            precision=32,     # 32 or 64, for Float32 or Float64
+                            unpadded=true,    # size padded arrays to "max( N, M )" instead of "N + M - 1".
+                            good_pad=false,   # add extra padding to easy factorizatoin and speed up FFT.
+                            odd_pad=true      # whether or not to round padded dimensions to even size
+                          ) where {N}
 
-  # By definition the cross-correlation size for each dimension is "Ni + Mi - 1". In PIV, this
-  # computation always leads to odd numbers:
-  #
-  #    isize + ( isize + 2*smargin ) - 1   =   2*( isize + smargin ) - 1
-  #
-  # We add padding of 1 pixel/voxel to each dimension to make them even numbers. This speeds up 
-  # the computation of FFTs (on average), by avoiding odd-prime numbers. In addition, we add 2
-  # extra pixels/voxels on the first dimension to enable r2c/c2r inplace operation.
+  #=
+    By definition the size of the cross-correlation matrix for each dimension is "N + M - 1", which
+    is the number of possible translations in each dimension. In quickPIV we are only interested in
+    fully overlapping translations, so we are free to perform smaller FFTs of size "max( N, M )".
 
-  csize      = isize .+ ssize .- 1 .+ 1;
-  pad_csize  = csize .+ ( 2, zeros(Int,N-1)... );
-  T          = ( precision == 32 ) ? Float32 : Float64; 
-  pad_inter  = zeros( T, pad_csize );
-  pad_search = zeros( T, pad_csize );
-  r2c_plan   = inplace_r2c_plan( pad_inter , csize );
-  c2r_plan   = inplace_c2r_plan( pad_search, csize );
+    On top to "max( N, M )", we need to add we add extra pixels (either 1 or 2) to perform inplace
+    real FFT transforms. These extra pixel(s) aren't actually part of the FFT transform, they simply 
+    ensure that there is enough memory to store the results. 
+  
+    We can choose to add etra padding to the FFT transform with SciPy's algorithm to round up the
+    dimensions of the cross-correlation matrix to the closest factor of 2,3,5 and 7. This increases  
+    the size of the FFT's, but it speeds up FFTs (for the most part). If not, we at least can add 
+    1 pixel of padding to odd dimension to make them even, and slightly speed up FFT (for the most
+    part).
+  =#
+  
+  csize0 = unpadded ? max.( isize, ssize ) : isize .+ ssize .- 1; 
+  csize1 = good_pad ? good_size_real.( csize0 ) : csize0 .+ isodd.( csize0 ) .* odd_pad;
+
+  r2c_pad  = ( 1 + iseven( csize1[1] ), zeros(Int,N-1)... );
+  corr_pad = csize1 .- csize0; 
+
+  pad_csize  = csize1 .+ r2c_pad;
+  pad_ctype  = ( precision == 32 ) ? Float32 : Float64; 
+  pad_inter  = zeros( pad_ctype, pad_csize );
+  pad_search = zeros( pad_ctype, pad_csize );
+  r2c_plan   = inplace_r2c_plan( pad_inter , csize1 );
+  c2r_plan   = inplace_c2r_plan( pad_search, csize1 );
 
   return ( pad_inter, pad_search, r2c_plan, c2r_plan )
 end
 
+
 """
-  Each interrogation area is defined by its top-left-corner (TLF) and the interrogation 
-  size. Each search area is defined by the interrogation area (TLF + interSize) and the
-  search margin around the interrogation area.  With this information we can copy the 
-  interrogation/search regions into the padded arrays.
+  Copying the interrogation and search regions into the padded arrays for the FFTs.
 """
-function prepare_inputs!( ::FFTCC, G, F, TLF, scale, pivparams::PIVParameters, tmp_data )
-  prepare_inputs!( FFTCC(), G, F, TLF, _isize(pivparams,scale), _smarg(pivparams,scale), tmp_data ) 
+
+function prepare_inputs!( ::FFTCC, F, G, coord_data, tmp_data )
+  copy_inter_region!(  tmp_data[1], F, coord_data );  
+  copy_search_region!( tmp_data[2], G, coord_data );   
 end
 
-function prepare_inputs!( ::FFTCC, G, F, TLF, size_G, marg_F, tmp_data )
-  copy_inter_region!(  tmp_data[1], G, TLF, size_G );  
-  copy_search_region!( tmp_data[2], F, TLF, size_G, marg_F );   
-end
 
 """
   Destroy FFTW plans from tmp_data
 """
+
 function destroy_fftw_plans( ::FFTCC, tmp_data )
   fftw_destroy_plan( tmp_data[3] )
   fftw_destroy_plan( tmp_data[4] )
@@ -83,53 +102,48 @@ end
   data: r2c and c2r. These are supposed to be approximately twice as fast and requires
   half the memory than complex2complex FFT's. 
   
-  Read FFTW's document for detailed information.
+  Check out FFTW's documentation for detailed information.
 """
-function _FFTCC!( pad_G, pad_F, r2c_plan, c2r_plan, scale, pivparams::PIVParameters )
-  return _FFTCC!( pad_G, pad_F, r2c_plan, c2r_plan, _isize(pivparams,scale), _ssize(pivparams,scale) ); 
+function _FFTCC!( pad_F, pad_G, r2c_plan, c2r_plan, scale, pivparams::PIVParameters )
+  return _FFTCC!( pad_F, pad_G, r2c_plan, c2r_plan, _isize(pivparams,scale), _ssize(pivparams,scale) ); 
 end
 
-function _FFTCC!( pad_G::Array{T,N}, pad_F::Array{T,N}, r2c_plan, c2r_plan, size_G::Dims{N}, size_F::Dims{N} ) where {T<:AbstractFloat,N}
+function _FFTCC!( pad_F::Array{T,N}, # padded interrogation region
+                  pad_G::Array{T,N}, # padded search region
+                  r2c_plan,          # forward inplace real FFT plan
+                  c2r_plan,          # backward inplace real FFT plan
+                  size_F::Dims{N},   # interrogation size
+                  size_G::Dims{N}    # search size
+                ) where {T<:AbstractFloat,N}
 
   # FORWARD IN-PLACE TRANSFORMS OF PAD_G AND PAD_F. 
-  execute_plan!( r2c_plan, pad_G )
   execute_plan!( r2c_plan, pad_F )
+  execute_plan!( r2c_plan, pad_G )
 
   # CONJ(PAD_F) .* PAD_G
-  corr_dot!( pad_G, pad_F )
+  corr_dot!( pad_F, pad_G )
 
   # INVERSE IN-PLACE TRANSFORM OF PAD_G
-  execute_plan!( c2r_plan, pad_G )
+  execute_plan!( c2r_plan, pad_F )
 
-  # NORMALIZING THE RESULTS, OTHERWISE R2C/C2R SCALES BY THE NUMBER OF INPUTS
-  pad_G ./= T( prod( size_G .+ size_F ) )
-
-  # CIRCSHIFTED RESULTS ARE STORED IN PAD_F. 
-  r2cpad = ( 2, zeros( Int64, N - 1 )... ); 
-  shifts = size_F .- 1
-  # TODO: CHECK IF USING VIEWS LEADS TO LESS ALLOCATIONS AND SAME SPEED
-  circshift!( view( pad_F, Base.OneTo.( size(pad_F) .- r2cpad )... ), 
-              view( pad_G, Base.OneTo.( size(pad_G) .- r2cpad )... ),
-              shifts )
+  # NORMALIZING THE RESULTS, OTHERWISE R2C/C2R SCALES BY THE NUMBER OF INPUTS 
+  pad_F ./= T( prod( size_F .+ size_G ) )
 
   return nothing
 end
 
-#=
-  OUT-OF-PLACE FFTCC FOR DEBUGGING. 
-  
-  IT ASSUMES THAT size(G) .+ size(F) .- 1 IS ODD. IT WILL FAIL IF THIS IS NOT THE CASE.
-=#
-function _FFTCC_piv( G::Array{T,N}, F::Array{T,N}; precision=32, silent=true ) where {T,N}
+"""
+  Out-of-place implementation of FFTC for debugging. 
+"""
 
-  silent || @assert all( iseven.( size(G) .+ size(F) ) ) "FFTCC will fail"
-  silent || println( "debugging FFT cross-correlation" ) 
+function _FFTCC( F::Array{T,N}, G::Array{T,N}; 
+                 precision=32, good_pad=false, unpadded=false ) where {T,N}
 
-  tmp_data = allocate_tmp_data( FFTCC(), size(G), size(F), precision )
-  tmp_data[1][Base.OneTo.(size(G))...] .= G
-  tmp_data[2][Base.OneTo.(size(F))...] .= F
+  tmp_data = allocate_tmp_data( FFTCC(), size(F), size(G), precision=precision, good_pad=good_pad, unpadded=unpadded )
+  tmp_data[1][Base.OneTo.(size(F))...] .= F
+  tmp_data[2][Base.OneTo.(size(G))...] .= G
 
-  _FFTCC!( tmp_data..., size(G), size(F) ) 
+  _FFTCC!( tmp_data..., size(F), size(G) ) 
 
   destroy_fftw_plans( FFTCC(), tmp_data )
 
@@ -137,14 +151,7 @@ function _FFTCC_piv( G::Array{T,N}, F::Array{T,N}; precision=32, silent=true ) w
 end
 
 
-
-
-
-
-
-
-
-
+#=
 """
   Out-of-place implementation of FFT cross-correlation.
   ------------------------------------------------------------------------
@@ -160,45 +167,31 @@ end
   of the cross-correlation in the frequency domain. 
 """
 
-function _FFTCC( G::Array{T,N}, F::Array{T,N}; precision=32, silent=true ) where {T,N}
+function _FFTCC( F::Array{T,N}, G::Array{T,N}; precision=32, silent=true ) where {T,N}
 
     silent || println( "running non-piv FFT cross-correlation" ); 
 
-    tmp_data = allocate_tmp_data_nopiv( FFTCC(), size(G), size(F), precision=precision )
-    
-    tmp_data[1][Base.OneTo.(size(G))...] .= G
-    tmp_data[2][Base.OneTo.(size(F))...] .= F
-    
-    _FFTCC_nopiv!( tmp_data..., size(G), size(F) ) 
-
+    tmp_data = allocate_tmp_data( FFTCC(), size(F), size(G), precision )
+    tmp_data[1][Base.OneTo.(size(F))...] .= F
+    tmp_data[2][Base.OneTo.(size(G))...] .= G
+    _FFTCC_nopiv!( tmp_data..., size(F), size(G) ) 
     destroy_fftw_plans( FFTCC(), tmp_data )
 
     return tmp_data[1], tmp_data[2]
 end
 
-function allocate_tmp_data_nopiv( ::FFTCC, isize::Dims{N}, ssize::Dims{N}; precision=32 ) where {N}
-  T          = ( precision == 32 ) ? Float32 : Float64; 
-  csize      = isize .+ ssize .- 1; 
-  r2cpad     = 1 + iseven( csize[1] ); 
-  pad_csize  = csize .+ ( r2cpad, zeros(Int,N-1)... );
-  pad_inter  = zeros( T, pad_csize );
-  pad_search = zeros( T, pad_csize );
-  r2c_plan   = inplace_r2c_plan( pad_inter , csize );
-  c2r_plan   = inplace_c2r_plan( pad_search, csize );
-  return ( pad_inter, pad_search, r2c_plan, c2r_plan ) 
-end
+function _FFTCC_nopiv!( pad_F::Array{T,N}, pad_G::Array{T,N}, r2c_plan, c2r_plan, pad1, pad2, size_G, size_F ) where {T<:AbstractFloat,N}
 
-function _FFTCC_nopiv!( pad_G::Array{T,N}, pad_F::Array{T,N}, r2c_plan, c2r_plan, size_G, size_F ) where {T<:AbstractFloat,N}
-
-  execute_plan!( r2c_plan, pad_G )
   execute_plan!( r2c_plan, pad_F )
-  corr_dot!( pad_G, pad_F )
-  execute_plan!( c2r_plan, pad_G )
-  pad_G ./= T( prod( size_G .+ size_F .- 1 ) )
-  r2cpad = 1 + Int( iseven( size_G[1] + size_F[1] - 1 ) ); 
-  circshift!( view( pad_F, 1:size(pad_F,1)-r2cpad, Base.OneTo.( size(pad_F)[2:end] )... ), 
-              view( pad_G, 1:size(pad_G,1)-r2cpad, Base.OneTo.( size(pad_G)[2:end] )... ),
+  execute_plan!( r2c_plan, pad_G )
+  corr_dot!( pad_F, pad_G )
+  execute_plan!( c2r_plan, pad_F )
+  pad_G ./= T( prod( size_F .+ size_G .- 1 ) )
+  r2cpad = 1 + Int( iseven( size_F[1] + size_G[1] - 1 ) ); 
+  circshift!( view( pad_G, 1:size(pad_G,1)-r2cpad, Base.OneTo.( size(pad_G)[2:end] )... ), 
+              view( pad_F, 1:size(pad_F,1)-r2cpad, Base.OneTo.( size(pad_F)[2:end] )... ),
               size_F .- 1 )
 
   return nothing
 end
+=#

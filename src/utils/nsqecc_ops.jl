@@ -35,22 +35,27 @@ function integralArraySQ!( int_array::Array{T,N}, array::Array{<:Real,N} ) where
     integralArraySQ!( int_array, array, Tuple( ones(N) ), size( array ) )
 end
 
-function integralArraySQ!( int_array::Array{T,2}, array::Array{<:Real,2}, TL=(1,1), inp_size=size(array) ) where {T<:AbstractFloat}
-    TL   = TL .- 1; 
+function integralArraySQ!( int_array::Array{T,2}, 
+                           array::Array{<:Real,2}, 
+                           TL=(1,1), 
+                           inp_size=size(array) ) where {T<:AbstractFloat}
     h, w = inp_size
-    @inbounds for c in 1+1:w+1, r in 1+1:h+1
-        int_array[r,c] = T(array[TL[1]+r-1,TL[2]+c-1])^2 + int_array[r-1,c] + int_array[r,c-1] - int_array[r-1,c-1]
+    for c in 1+1:w+1, r in 1+1:h+1
+        val2 = T(array[ ( TL .+ (r,c) .- 2 )... ] )^2
+        int_array[r,c] = val2 + int_array[r-1,c] + int_array[r,c-1] - int_array[r-1,c-1]
     end
 end
 
-function integralArraySQ!( int_array::Array{T,3}, array::Array{<:Real,3}, TLF=(1,1,1), inp_size=size(array) ) where {T<:AbstractFloat}
-    TLF     = TLF .- 1; 
+function integralArraySQ!( int_array::Array{T,3},
+                           array::Array{<:Real,3}, 
+                           TLF=(1,1,1), 
+                           inp_size=size(array) ) where {T<:AbstractFloat}
     h, w, d = inp_size;
     for z in 1+1:d+1
         for c in 1+1:w+1
             tmp = 0.0; 
             for r in 1+1:h+1      
-                val2 = T(array[TLF[1]+r-1,TLF[2]+c-1,TLF[3]+z-1])^2
+                val2 = T(array[ ( TLF .+ (r,c,z) .- 2 )... ] )^2
                 int_array[r,c,z] = val2 + int_array[r,c-1,z] + int_array[r,c,z-1] - int_array[r,c-1,z-1] + tmp;
                 tmp += val2; 
             end 

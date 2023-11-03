@@ -80,9 +80,9 @@ end
 function corr_dot!( pad_G, pad_F )
     @inbounds @simd for idx in 1:2:length(pad_G)
         a = pad_G[ idx ]
-        b = pad_G[idx+1]
+        b = -1 * pad_G[idx+1]
         c = pad_F[ idx ]
-        d = -1 * pad_F[idx+1]
+        d = pad_F[idx+1]
         pad_G[ idx ] = a*c - b*d
         pad_G[idx+1] = a*d + c*b
     end
@@ -102,6 +102,7 @@ function conv_dot!( pad_G, pad_F )
         a = pad_G[ idx ]
         b = pad_G[idx+1]
         c = pad_F[ idx ]
+        d = pad_F[idx+1]
         pad_G[ idx ] = a*c - b*d
         pad_G[idx+1] = a*d + c*b
     end
