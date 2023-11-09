@@ -4,8 +4,8 @@ module multi_quickPIV
 # OR README in the ./crosscorrelation_algorithms. 
 # TODO: record and upload video
 
+include("./utils/common_ops.jl")	
 include("piv_parameters.jl")
-include("./utils/common_ops.jl")
 include("./utils/piv_ops.jl")
 include("./utils/fft_ops.jl")
 include("./utils/nsqecc_ops.jl")
