@@ -2,6 +2,7 @@
     SIMD optimized (faster than Base.findmax) to find the max index of the
     cross-correlation matrices. Returns a linear index. 
 """
+
 function maxidx( a::AbstractArray{<:Real,N} ) where {N}
 
 	len = length(a)
@@ -113,73 +114,4 @@ function secondPeak( cmat::Array{T,N}, peak1::Dims{N}, width=1 ) where {T,N}
     cmat[ ranges... ] .= OGvals;
 
     return peak2, maxval2
-end
-
-
-"""
-    USED FOR SMART PADDING FOR OPTIMAL FFT PERFORMANCE, TAKEN FROM SCIPY
-"""
-
-function root( base, goal, mul=1 )
-	n = 0; 
-	while ( mul * base ^ ( n + 1 ) < goal )
-		n += 1
-	end
-	return n
-end
-
-needs_factorization( n ) = !any( [ n % f == 0  for f in (2,3,5,11) ] )
-
-function good_size_real( n )
-
-	( n <= 6 ) && ( return n; )
-	
-	bestfac = 2 * n
-	for n5 in 0:root( 11, bestfac, 5 );  f5 = 5^n5
-	  x = f5
-		while ( x < n )
-			x *= 2
-		end
-		while (true)
-			if ( x < n )
-				x *= 3
-			elseif ( x > n )
-				( x < bestfac ) && ( bestfac = x; )
-				( x&1 == 1 ) && ( break; )
-				x >>= 1
-			else
-				return n
-			end
-		end # while (true)	
-	end
-	return bestfac
-end
-
-function good_size_cmplx( n )
-
-	( n <= 12 ) && ( return n; )
-	
-	bestfac = 2 * n; 
-	for n11 in 0:root( 11, bestfac, 1 );             f11   = 11^n11
-		for n117 in 0:root( 7, bestfac, f11 );       f117  = f11*7^n117
-			for n1175 in 0:root( 5, bestfac, f117 ); f1175 = f117*5^n1175
-
-				x = f1175; 
-				while ( x < n )
-					x *= 2
-				end
-				while (true)
-					if ( x < n )
-						x *= 3
-					elseif ( x > n )
-						( x < bestfac ) && ( bestfac = x; )
-						( x&1 == 1 ) && ( break; )
-						x >>= 1
-					else
-						return n
-					end
-				end # while (true)		
-	end end end
-
-	return bestfac
 end
