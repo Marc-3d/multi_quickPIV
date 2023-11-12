@@ -32,8 +32,10 @@ end
 function allocate_tmp_data( ::NSQECC, scale, pivparams::PIVParameters, precision=32 )
 
   return allocate_tmp_data( NSQECC(), _isize(pivparams, scale), _ssize(pivparams, scale),
-                            precision=precision, unpadded=pivparams.unpadded, 
-                            good_pad=pivparams.good_pad, odd_pad=pivparams.odd_pad
+                            precision=precision, 
+                            unpadded=pivparams.unpadded, 
+                            good_pad=pivparams.good_pad, 
+                            odd_pad=pivparams.odd_pad
                           )
 end
 
@@ -69,13 +71,13 @@ end
   which will allow us to compute the L2 errors efficiently for each translation.
 """
 
-function prepare_inputs!( ::NSQECC, F, G::Array{T,N}, coord_data, tmp_data ) where {T,N}
+function prepare_inputs!( ::NSQECC, F::Array{T,N}, G::Array{T,N}, coord_data, tmp_data ) where {T,N}
 
-  copy_inter_region!( tmp_data[1], F, coord_data );          
+  copy_inter_region!(  tmp_data[1], F, coord_data );          
   copy_search_region!( tmp_data[2], G, coord_data );
 
-  size_G = size(tmp_data[3]) .- 1; # search region size
-  integralArraySQ!( tmp_data[3], tmp_data[2], ones(Int64,N), size_G );
+  size_G = size(tmp_data[3]) .- 1; 
+  integralArraySQ!( tmp_data[3], tmp_data[2], Tuple(ones(Int64,N)), size_G );
 end
 
 
@@ -103,8 +105,8 @@ end
   obvious how to deal with partially overlaping translations when using the L2 similarity. 
 """
 
-function _NSQECC!( pad_G, pad_F, int2_F, r2c, c2r, csize, scale, pivparams::PIVParameters )
-  return _NSQECC!( pad_G, pad_F, int2_F, r2c, c2r, csize, _isize(pivparams,scale), _ssize(pivparams,scale) );
+function _NSQECC!( pad_F, pad_G, int2_G, r2c, c2r, csize, scale, pivparams::PIVParameters )
+  return _NSQECC!( pad_F, pad_G, int2_G, r2c, c2r, csize, _isize(pivparams,scale), _ssize(pivparams,scale) );
 end
 
 function _NSQECC!( pad_F::Array{T,N}, 

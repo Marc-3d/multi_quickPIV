@@ -9,7 +9,7 @@
 
 function displacement_from_crosscorrelation( ::FFTCC, scale, pivparams::PIVParameters, tmp_data )
 
-  _FFTCC!( tmp_data..., scale, pivparams );
+  _FFTCC!( tmp_data... );
 
   displacement = gaussian_displacement( tmp_data[1], scale, pivparams )
 
@@ -29,8 +29,10 @@ end
 function allocate_tmp_data( ::FFTCC, scale, pivparams::PIVParameters, precision=32 )
 
     return allocate_tmp_data( FFTCC(), _isize(pivparams,scale), _ssize(pivparams,scale),
-                              precision=precision, unpadded=pivparams.unpadded, 
-                              good_pad=pivparams.good_pad, odd_pad=pivparams.odd_pad
+                              precision=precision, 
+                              unpadded=pivparams.unpadded, 
+                              good_pad=pivparams.good_pad, 
+                              odd_pad=pivparams.odd_pad
                              )
 end
 
@@ -91,7 +93,7 @@ end
 """
 
 function _FFTCC!( pad_F, pad_G, r2c_plan, c2r_plan, csize, scale, pivparams::PIVParameters )
-  return _FFTCC!( pad_F, pad_G, r2c_plan, c2r_plan, csize, _isize(pivparams,scale), _ssize(pivparams,scale) ); 
+  return _FFTCC!( pad_F, pad_G, r2c_plan, c2r_plan, csize ); 
 end
 
 function _FFTCC!( pad_F::Array{T,N}, # padded interrogation region

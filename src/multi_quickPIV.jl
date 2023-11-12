@@ -29,8 +29,11 @@ end
 """
 	Single threaded PIV implementations (default).
 """
-function PIV_singlethreaded( input1::AbstractArray{<:Real,N}, input2::AbstractArray{<:Real,N}, 
-	                         pivparams::PIVParameters, precision=32 ) where {N}
+function PIV_singlethreaded( input1::AbstractArray{<:Real,N}, 
+	                         input2::AbstractArray{<:Real,N}, 
+	                         pivparams::PIVParameters, 
+							 precision=32
+						   ) where {N}
 
 	size1, size2 = size(input1), size(input2);
     @assert all( size1 .== size2 ) "PIV inputs need to have the same size."
@@ -59,7 +62,7 @@ function PIV_singlethreaded( input1::AbstractArray{<:Real,N}, input2::AbstractAr
 			# COPYING INTERROGATION/SEARCH REGIONS INTO PADDED ARRAYS FOR FFT
 			prepare_inputs!( pivparams.corr_alg, input1, input2, coord_data, tmp_data );
 
-            # COMPUTING DISPLACEMENT FROM MAXIMUM PEAK OF CROSS-CORRELATION MATRIX + GAUSSIAN REFINEMENT
+			# COMPUTING DISPLACEMENT FROM MAXIMUM PEAK OF CROSS-CORRELATION MATRIX + GAUSSIAN REFINEMENT
             displacement = displacement_from_crosscorrelation( pivparams.corr_alg, scale, pivparams, tmp_data )
 
             # UPDATING THE VECTOR FIELD
@@ -79,8 +82,12 @@ function PIV_singlethreaded( input1::AbstractArray{<:Real,N}, input2::AbstractAr
 end
 
 # MASKED PIV
-function PIV_singlethreaded_masked( input1::AbstractArray{<:Real,N}, input2::AbstractArray{<:Real,N}, 
-									mask, pivparams::PIVParameters, precision=32 ) where {N}
+function PIV_singlethreaded_masked( input1::AbstractArray{<:Real,N}, 
+	                                input2::AbstractArray{<:Real,N}, 
+									mask, 
+									pivparams::PIVParameters, 
+									precision=32
+								  ) where {N}
 
 	size1, size2, size3 = size(input1), size(input2), size( mask );
     @assert all( size1 .== size2 .== size3 ) "PIV inputs need to have the same size."
