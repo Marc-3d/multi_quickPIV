@@ -1,23 +1,24 @@
 """
   This computes normalized L2 error cross-correlation efficiently by combining
   FFTCC in the frequency domain and integral arrays to compute certain sums of
-  the values in the search region. 
+  the search region. 
 
   Remarkably, NSQECC looks for the translation that minimizes L2 errors between
   the interrogation and search regions, instead of the translation that maximizes
-  their dot product. This leads in much more robust results for any datasets. NSQECC
-  is the default algorithm, and it is recommended for most biological applicatoins.
+  their dot product. This leads in much more robust results for any datasets. 
+  NSQECC is the default algorithm, and it is recommended for most biological 
+  applications.
 """
 
-function displacement_from_crosscorrelation( ::NSQECC, scale, pivparams::PIVParameters, tmp_data )  
+function crosscorrelation!( ::NSQECC, 
+                            scale, 
+                            pivparams::PIVParameters, 
+                            tmp_data
+                          )  
 
   _NSQECC!( tmp_data..., scale, pivparams )  
-
-  displacement = gaussian_displacement( tmp_data[1], scale, pivparams )
-  
-  return displacement
+  return nothing
 end
-
 
 """
   In order to compute NSQECC we need: 
@@ -71,7 +72,9 @@ end
   which will allow us to compute the L2 errors efficiently for each translation.
 """
 
-function prepare_inputs!( ::NSQECC, F::Array{T,N}, G::Array{T,N}, coord_data, tmp_data ) where {T,N}
+function prepare_inputs!( ::NSQECC, F::Array{T,N}, G::Array{T,N}, 
+                                    coord_data, 
+                                    tmp_data ) where {T,N}
 
   copy_inter_region!(  tmp_data[1], F, coord_data );          
   copy_search_region!( tmp_data[2], G, coord_data );

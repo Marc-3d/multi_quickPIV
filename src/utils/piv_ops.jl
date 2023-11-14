@@ -2,6 +2,7 @@
     COMPUTING VECTOR FIELD SIZE, AKA THE NUMBER OF INTERROGATOIN AREAS THAT FIT IN EACH INPUT 
     DIMENSION.
 """
+
 function get_vectorfield_size( input_size::Dims{N}, pivparams::PIVParameters, scale=1 ) where {N}
     get_vectorfield_size( input_size, _isize( pivparams, scale ), _step(  pivparams, scale ) )
 end
@@ -12,9 +13,12 @@ end
 
 
 """
-    Allocates output matrices to hold the PIV vector field (VF) and the signal-to-noise (SN) 
-    matrix (if desired). 2D VFs are stored in a 3D matrix of size (3,VF_heigh,VF_width), and
-    3D VFs in a 4D matrice of size (3,VF_heigh,VF_width,VF_depth). 
+    ALLOCATES MEMORY TO HOLD THE PIV VECTOR FIELD (VF) AND THE SIGNAL-TO-NOISE (SN) MATRICES.
+
+    2D VFs ARE STORED IN A 3D MATRIX OF SIZE (2,VF_HEIGHT,VF_WIDTH): U = VF[1,:,:], V = VF[2,:,:].
+    
+    3D VFs ARE STORED IN A 4D MATRIX OF SIZE (3,VF_HEIGHT,VF_WIDTH,VF_DEPTH): U = VF[1,:,:,:], 
+    V = VF[2,:,:,:], W = VF[3,:,:,:].
 """
 function allocate_outputs( input_size::Dims{N}, pivparams::PIVParameters, precision=32 ) where {N}
 
@@ -27,8 +31,10 @@ end
 
 
 """
-    Finding the TLF (top-left-front) and BRB (bottom-right-back) coordinates of the "i"th 
-    interrogation region.
+    FINDING THE TLF (TOP-LEFT-FRONT) AND BRB (BOTTOM-RIGTH-BACK) COORDINATES OF THE "i"th
+    INTERROGATION REGION. 
+
+    SOMETIMES, I WILL REPLACE BRB ---> DRB (DOWN-RIGHT-BACK), TO AVOID REPEATING LETTERS...
 """
 function get_interrogation_coordinates( vf_idx::Int, vf_size::Dims{N}, input_size::Dims{N}, scale, pivparams::PIVParameters ) where {N}
 
@@ -36,18 +42,17 @@ function get_interrogation_coordinates( vf_idx::Int, vf_size::Dims{N}, input_siz
     IR_TLF    = ones(Int, N) .+ ( vf_coords .- 1 ) .* _step( pivparams, scale );
     IR_BRB    = IR_TLF .+ _isize( pivparams, scale ) .- 1; 
 
-    # if we are using convolution to replace cross-correlation, the interrogation input is reversed
-    if eltype( pivparams.corr_alg ) <: CONVTYPES
-        IR_TLF = input_size .- IR_BRB .+ 1; 
-        IR_BRB = input_size .- IR_TLF .+ 1; 
-    end
     return IR_TLF, IR_BRB
 end
 
 
 """
-    Finding the TLF (top-left-front) and BRB (bottom-right-back) coordinates of the "i"th 
-    search region.
+    FINDING THE TLF (TOP-LEFT-FRONT) AND BRB (BOTTOM-RIGTH-BACK) COORDINATES OF THE "i"th
+    INTERROGATION REGION. IN ADDITION, SEARCH COORDINATES MIGHT GO OUT-OF-BOUNDS OF THE 
+    INPUT ARRAYS. THE OUT-OF-BOUND EXTENDS NEED TO BE CONSIDERED WHEN COPYING THE SEARCH
+    REGION INTO THE PADDED ARRAY AND WHEN FINDING THE MAXIMUM PEAK. 
+
+    SOMETIMES, I WILL REPLACE BRB ---> DRB (DOWN-RIGHT-BACK), TO AVOID REPEATING LETTERS...
 """
 function get_search_coordinates( vf_idx::Int, vf_size::Dims{N}, input_size::Dims{N}, scale, pivparams::PIVParameters ) where {N}
 
@@ -64,7 +69,7 @@ end
 
 
 """
-    Return a tuple with all coordinate information about the interrogation and search regions
+    RETRUNS A TUPLE WITH ALL COORDINATE INFORMATION AOUT THE INTERROGATION AND SEARCH REGIONS.
 """
 function get_interrogation_and_search_coordinates( vf_idx::Int, vf_size::Dims{N}, input_size::Dims{N}, scale, pivparams::PIVParameters ) where {N}
 
@@ -76,40 +81,38 @@ end
 
 
 """
-    USED FOR COPYING THE INPUT DATA INTO THE PADDED ARRAYS FOR FFT
+    USED FOR COPYING THE INPUT DATA INTO THE PADDED ARRAYS FOR FFT. EACH COPY-FUNCTION HAS
+    A VERSION THAT ACCEPTS A TUPLE OF COORDINATE DATA, TO MAKE THE CODE MORE SUCCINT. 
+
+    coord_data = [ IA_TLF, IA_BRB, SA_TLF, SA_BRB, SA_TLF_off, SA_BRB_off ].
 """
 
-# The two functions below accept a tuple of coordinates, which makes the code more succint.
-# "coord_data" contains = [ IA_TLF, IA_BRB, SA_TLF, SA_BRB, SA_TLF_off, SA_BRB_off ].
-
-function copy_inter_region!( pad_inter, input1, coord_data::NTuple{6,N} ) where {N}
-    copy_inter_region!( pad_inter, input1, coord_data[1], coord_data[2] )
+function copy_inter_region!( pad_F, F, coord_data::NTuple{6,N} ) where {N}
+    copy_inter_region!( pad_F, F, coord_data[1], coord_data[2] )
 end
 
-function copy_search_region!( pad_inter, input1, coord_data::NTuple{6,N} ) where {N}
-    copy_search_region!( pad_inter, input1, coord_data[3], coord_data[4], coord_data[5] )
+function copy_inter_region!( pad_F, F, IR_TLF, IR_BRB )
+    pad_F .= 0.0; 
+    size_F = IR_BRB .- IR_TLF .+ 1; 
+    pad_F[ Base.OneTo.(size_F)... ] .= F[ UnitRange.(IR_TLF,IR_BRB)... ]
 end
 
-# 
-
-function copy_inter_region!( pad_inter, input1, IR_TLF, IR_BRB )
-    pad_inter .= 0.0; 
-    inter_size = IR_BRB .- IR_TLF .+ 1; 
-    pad_inter[ Base.OneTo.(inter_size)... ] .= input1[ UnitRange.(IR_TLF,IR_BRB)... ]
+function copy_search_region!( pad_G, G, coord_data::NTuple{6,N} ) where {N}
+    copy_search_region!( pad_G, G, coord_data[3], coord_data[4], coord_data[5] )
 end
 
-function copy_search_region!( pad_search, input2, SR_TLF, SR_BRB, SR_TLF_offset )
+function copy_search_region!( pad_G, G, SR_TLF, SR_BRB, SR_TLF_offset )
 
-    pad_search .= 0.0
-    search_size = SR_BRB .- SR_TLF .+ 1; 
-    padsearch_coords = UnitRange.( 1 .+ SR_TLF_offset,  search_size .+ SR_TLF_offset );
-    pad_search[ padsearch_coords... ] .= input2[ UnitRange.( SR_TLF, SR_BRB )... ]; 
+    pad_G .= 0.0
+    size_G = SR_BRB .- SR_TLF .+ 1; 
+    pad_coords = UnitRange.( 1 .+ SR_TLF_offset, size_G .+ SR_TLF_offset );
+    pad_G[ pad_coords... ] .= G[ UnitRange.( SR_TLF, SR_BRB )... ]; 
 end
 
 
 """
-    USED MOSTELY FOR FILTERING INTERROGATION REGIONS THAT BELONG TO THE BACKGROUND. 
-    GENERALLY, THOSE WITH A VERY LOW MEAN INTENSITY CORRESPOND TO BACKGROUND REGIONS.
+    USED FOR FILTERING INTERROGATION REGIONS THAT BELONG TO THE BACKGROUND. GENERALLY,
+    THOSE WITH A VERY LOW MEAN INTENSITY CORRESPOND TO BACKGROUND REGIONS.
 """
 function skip_inter_region( input, IR_TLF, IR_BRB, pivparams::PIVParameters )
 
@@ -121,26 +124,21 @@ function skip_inter_region( input, IR_TLF, IR_BRB, pivparams::PIVParameters )
     end
 end
 
+
 """
+    Getting vector field coordinates for each displacement vector would be quite trivial...
+    it is the linear index "VFidx" of the interrogatoin/search pair in multi_quickPIV.jl:29. 
     
-"""
+    However, we need to account for multipass, where displacements computed at high scales 
+    (4x, 3x, etc) are used to offset the sampling of search regions in the next iterations 
+    (at lower scales).
 
-"""
-    Getting vector field coordinates for each displacement vector would be 
-    quite trivial... it is the linear index "VFidx" of the interrogatoin /
-    search pair in multi_quickPIV.jl:29. 
-    
-    However, we need to account for multipass, where displacements computed
-    at high scales (4x, 3x, etc) are used to offset the sampling of search 
-    regions in the next iterations (at lower scales).
+    For example, a single 2x interrogation/search pair contains 4 (2x2) 1x interrogation/search
+    pairs. The corresponding 2x displacement will be used to offset the search regions of the 4
+    contained 1x interrogation / search pairs. 
 
-    For example, a single 2x interrogation/search pair contains 4 (2x2) 
-    1x interrogation/search pairs. The corresponding 2x displacement will be 
-    used to offset the search regions of the 4 contained 1x interrogation / 
-    search pairs. 
-
-    In addition, overlap between interrogation areas requires interpolation
-    of the vectors computed at large scales. 
+    In addition, overlap between interrogation areas requires interpolation of the vectors 
+    computed at large scales. 
 """
 #= debug code 
 
@@ -214,22 +212,30 @@ end
     GAUSSIAN SUBPIXEL APPROXIMATION.
 """
 
-function gaussian_displacement( corr_mat, scale, pivparams::PIVParameters )
+function gaussian_displacement( corr_mat, scale, pivparams::PIVParameters, coord_data, tmp_data )
 
     # cross-correlation maximum peak coordinates 
-    peak, maxval = firstPeak( corr_mat )
-
+    if pivparams.unpadded
+        # if unpadded --> only check full ovps
+        center       = _smarg( pivparams, scale ) .+ 1; 
+        peak, maxval = first_fullovp_peak( corr_mat, _smarg( pivparams, scale ), coord_data[5], coord_data[6] )
+    else
+        # else        --> check all translation except r2c_pad
+        csize        = tmp_data[end]
+        r2c          = size( tmp_data[1] ) .- csize; 
+        center       = div.( csize, 2 )
+        peak, maxval = first_fullovp_peak( corr_mat, csize, coord_data[5], coord_data[6] )
+    end
+    # println( peak, center )
     # unpadded cross-correlation center is very simple, searchMargin .+ 1. 
-    center = _smarg( pivparams, scale ) .+ 1; 
-
-    displacement = gaussian_refinement( corr_mat, peak, maxval ) .- center
+    displacement = center .- gaussian_refinement( corr_mat, peak, maxval )
 
     return displacement
 end
 
 function gaussian_displacement( corr_mat, isize::Dims{N}, ssize::Dims{N} ) where {N}
 
-    peak, maxval = firstPeak( corr_mat )
+    peak, maxval = first_peak( corr_mat )
     center = div.( isize, 2 ) .+ div.( ssize, 2 )
     return gaussian_refinement( corr_mat, peak, maxval ) .- center
 end

@@ -28,8 +28,23 @@ function maxidx( a::AbstractArray{<:Real,N} ) where {N}
 end
 
 function maxval( a::AbstractArray{<:Real,N} ) where {N}
-    max_idx = maxidx( a )
-    return a[ max_idx ]; 
+	len = length(a)
+	if ( len < 4 )
+        return maximum( a ); 
+    else
+        m1 = a[1]
+        m2 = a[2]
+        m3 = a[3]
+        m4 = a[4]
+        simdstart = len%4 + 1
+        @inbounds @simd for i in simdstart:4:len
+            m1 = ( a[ i ] > m1 ) ? a[ i ] : m1
+            m2 = ( a[i+1] > m2 ) ? a[i+1] : m2
+            m3 = ( a[i+2] > m3 ) ? a[i+2] : m3
+            m4 = ( a[i+3] > m4 ) ? a[i+3] : m4
+        end
+        return maximum( ( m1, m2, m3, m4 ) )
+    end
 end
 
 
@@ -59,50 +74,34 @@ end
     USED FOR FINDING THE MAXIUMUM PEAK IN THE CROSS-CORRELATION MATRIX. 
 """
 
-function firstPeak( cmat::Array{<:AbstractFloat,N} ) where {N}
+function first_peak( cmat::Array{<:AbstractFloat,N} ) where {N}
     maxindex = maxidx( cmat )
     maxcartx = linear2cartesian( maxindex, size(cmat) )
     return maxcartx, cmat[ maxindex ]
 end
 
-# specialized function to find the maximum peak among only fully-overlapping translations
-function find_max_translation( cmat::Array{T,2}, SM, SR_TLF_off, SR_BRB_off ) where {T}
-    center    = SM .+  1; 
-    trans_TLF = ones(N) .+ SR_TLF_off
-    trans_BRB = ones(N) .* ( 2 .* SM .+ 1 ) .-  SR_BRB_off; 
+function first_fullovp_peak( cmat::Array{T,N}, SM, SR_TLF_off, SR_BRB_off ) where {T,N}
+
+    trans_TL = ones(Int64,N) .+ SR_TLF_off
+    trans_F  = (   N == 2  ) ? 1 : 1 + SR_TLF_off[3]
+    trans_BR = ones(Int64,N) .* ( 2 .* SM  ) .-  SR_BRB_off; 
+    trans_B  = (   N == 2  ) ? 1 : 1 + 2 * SM[3] - SR_BRB_off[3]; 
 
     max_value = 0; 
-    max_coord = ( 0, 0 ); 
-    @inbounds for c in trans_TLF[2]:trans_BRB[2], 
-                  r in trans_TLF[1]:trans_BRB[1]
-        if cmat[ r, c ] > max_value
-            max_value = cmat
-            max_coord = ( r, c )
-        end
-    end
-    return ( max_coord .- center, max_coord, max_value ); 
-end
+    max_coord = (0 ,0, 0 ); 
+    @inbounds for z in trans_F:trans_B,
+                  c in trans_TL[2]:trans_BR[2], 
+                  r in trans_TL[1]:trans_BR[1]
 
-function find_max_translation( cmat::Array{T,3}, SM, SR_TLF_off, SR_BRB_off ) where {T}
-    center    = SM .+  1; 
-    trans_TLF = ( 1, 1 ).+ SR_TLF_off
-    trans_BRB = ( 2 .* SM .+ 1 ) .-  SR_BRB_off; 
-
-    max_value = 0; 
-    max_coord = ( 0, 0, 0 ); 
-    @inbounds for z in trans_TLF[3]:trans_BRB[3]
-                  c in trans_TLF[2]:trans_BRB[2], 
-                  r in trans_TLF[1]:trans_BRB[1]
         if cmat[ r, c, z ] > max_value
-            max_value = cmat
+            max_value = cmat[ r, c, z ]
             max_coord = ( r, c, z )
         end
     end
-    return ( max_coord .- center, max_coord, max_value ); 
+    return ( max_coord[1:N], max_value ); 
 end
 
-
-function secondPeak( cmat::Array{T,N}, peak1::Dims{N}, width=1 ) where {T,N}
+function second_peak( cmat::Array{T,N}, peak1::Dims{N}, width=1 ) where {T,N}
 
 	# Save the original values around the maximum peak before changing them to -Inf.
     ranges = UnitRange.( max.(1,peak1.-width), min.(size(cmat), peak1.+width) );
