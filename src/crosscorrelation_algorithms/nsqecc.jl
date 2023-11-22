@@ -72,7 +72,7 @@ end
   which will allow us to compute the L2 errors efficiently for each translation.
 """
 
-function prepare_inputs!( ::NSQECC, F::Array{T,N}, G::Array{T,N}, 
+function prepare_inputs!( ::NSQECC, F::AbstractArray{T,N}, G::AbstractArray{T,N}, 
                                     coord_data, 
                                     tmp_data ) where {T,N}
 

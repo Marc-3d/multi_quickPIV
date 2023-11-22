@@ -8,7 +8,9 @@ using FFTW
 
 # R2C 
 
-function inplace_r2c_plan( pad_input::Array{Float64,N}, input_size ) where {N}
+function inplace_r2c_plan( pad_input::Array{Float64,N}, input_size, num_threads=Threads.nthreads() ) where {N}
+
+    FFTW.set_num_threads(num_threads);
 
     rank  = Cint( N );
     n     = Cint[ reverse( input_size )... ]; 
@@ -17,7 +19,9 @@ function inplace_r2c_plan( pad_input::Array{Float64,N}, input_size ) where {N}
     return plan
 end
 
-function inplace_r2c_plan( pad_input::Array{Float32,N}, input_size ) where {N}
+function inplace_r2c_plan( pad_input::Array{Float32,N}, input_size, num_threads=Threads.nthreads() ) where {N}
+
+    FFTW.set_num_threads(num_threads);
     
     rank  = Cint( N );
     n     = Cint[ reverse( input_size )... ]; 
@@ -28,7 +32,9 @@ end
 
 # C2R
 
-function inplace_c2r_plan( pad_input::Array{Float64,N}, input_size ) where {N}
+function inplace_c2r_plan( pad_input::Array{Float64,N}, input_size, num_threads=Threads.nthreads() ) where {N}
+
+    FFTW.set_num_threads(num_threads); 
     
     rank  = Cint( N );
     n     = Cint[ reverse( input_size )... ]; 
@@ -37,8 +43,10 @@ function inplace_c2r_plan( pad_input::Array{Float64,N}, input_size ) where {N}
     return plan
 end
 
-function inplace_c2r_plan( pad_input::Array{Float32,N}, input_size ) where {N}
+function inplace_c2r_plan( pad_input::Array{Float32,N}, input_size, num_threads=Threads.nthreads() ) where {N}
     
+    FFTW.set_num_threads(num_threads);
+
     rank  = Cint( N );
     n     = Cint[ reverse( input_size )... ]; 
     flags = FFTW.ESTIMATE | FFTW.DESTROY_INPUT;
@@ -65,6 +73,9 @@ end
 
 function fftw_cleanup()
     @ccall  FFTW.FFTW_jll.libfftw3.fftw_cleanup()::Cvoid
+    if ( Threads.nthreads() > 1 )
+        @ccall  FFTW.FFTW_jll.libfftw3.fftw_cleanup_threads()::Cvoid
+    end
 end
 
 """

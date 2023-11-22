@@ -18,23 +18,31 @@ include("./crosscorrelation_algorithms/mask_nsqecc.jl")
 
 # STANDARD PIV 
 function PIV( input1, input2, pivparams::PIVParameters; precision=32 )
-	return PIV_singlethreaded( input1, input2, pivparams, precision  )
+	return PIV_CPU( input1, input2, pivparams, precision  )
 end
 
 # MASKED PIV
 function PIV( input1, input2, mask, pivparams::PIVParameters, precision=32 )
-	return PIV_singlethreaded_masked( input1, input2, mask, pivparams, precision  )
+	return PIV_CPU_masked( input1, input2, mask, pivparams, precision  )
 end
 
 
 """
-	Single threaded PIV implementations (default).
+	CPU PIV implementation.
+
+	If julia is launched with multiple threads, we enable FFTW to perform multithreaded r2c/c2r FFT 
+	transfroms. For instance, to launch a julia REPL with 4 threads run: "julia -t 4". If you want 
+	to run multithreaded quickPIV from a jupyter notebook, follow the instructions in this github 
+	issue: https://github.com/JuliaLang/IJulia.jl/issues/882#issuecomment-579520246 
+
+	NOTE: 
+		FFTW.fftw_init_threads() is called within FFTW.__init__(), so we don't need to do it.
 """
-function PIV_singlethreaded( input1::AbstractArray{<:Real,N}, 
-	                         input2::AbstractArray{<:Real,N}, 
-	                         pivparams::PIVParameters, 
-							 precision=32
-						   ) where {N}
+function PIV_CPU( input1::AbstractArray{<:Real,N}, 
+	              input2::AbstractArray{<:Real,N}, 
+	              pivparams::PIVParameters, 
+				  precision=32
+				) where {N}
 
 	size1, size2 = size(input1), size(input2);
     @assert all( size1 .== size2 ) "PIV inputs need to have the same size."
@@ -86,12 +94,12 @@ function PIV_singlethreaded( input1::AbstractArray{<:Real,N},
 end
 
 # MASKED PIV
-function PIV_singlethreaded_masked( input1::AbstractArray{<:Real,N}, 
-	                                input2::AbstractArray{<:Real,N}, 
-									mask::AbstractArray{<:Real,N}, 
-									pivparams::PIVParameters, 
-									precision=32
-								  ) where {N}
+function PIV_CPU_masked( input1::AbstractArray{<:Real,N}, 
+						 input2::AbstractArray{<:Real,N}, 
+						 mask::AbstractArray{<:Real,N}, 
+						 pivparams::PIVParameters, 
+						 precision=32
+					   ) where {N}
 
 	size1, size2, size3 = size(input1), size(input2), size( mask );
     @assert all( size1 .== size2 .== size3 ) "PIV inputs need to have the same size."
@@ -142,50 +150,10 @@ function PIV_singlethreaded_masked( input1::AbstractArray{<:Real,N},
     return VF, SN 
 end
 
-
-
-"""
-    Multithreaded PIV. This is the default if julia is launched with multiple threads. 
-"""
-function PIV_multithreaded( input1::AbstractArray{<:Real,N}, input2::AbstractArray{<:Real,N}, 
-						 	pivparams::PIVParameters, precision=32 ) where {N}
-
-	size1, size2 = size(input1), size(input2);
-	@assert all( size1 .== size2 ) "PIV inputs need to have the same size."
-
-	pivparams.ndims = N;
-
-	# PREALLOCATING RESULTS: VECTOR FIELD + SIGNAL-TO-NOISE MATRIX
-	VF, SN = allocate_outputs( size1, pivparams, precision )
-
-	# MULTISCALE LOOP
-	for scale in pivparams.multipass:-1:1 
-		
-		tmp_data = [ allocate_tmp_data( corr_alg, scale, pivparams, precision ) for tidx in nthreads ]
-        
-		#@threads ... 
-			# EACH THREAD/ PROCESSES AN INTERROGATION/SEARCH REGION
-			IA_start  = get_interrogation_origin( idx, size(input1), s )
-
-			# ONE-LINER TO COMPUTE CROSS-CORRELATION AND FIND MAXIMUM PEAK
-            displ, SN = crosscorrelate_and_return_displacement( corr_alg, IA_start, mp, pivparams, tmp_data[tidx] )
-			
-			# UPDATING THE VECTOR FIELD
-			# vf_coords = ... 
-			update_vectorfield!( U, V, W, SN, vf_coords, displ )
-		#end
-
-		# SYNCH THREADS
-	end
-
-end
-
-
-
 """
     TODO: CPU(single_thread)s-GPU PIV. 
 """
-function PIV_singlethreaded_and_GPU( input1, input2, pivparams; precision=32 )
+function PIV_CPUGPU( input1, input2, pivparams; precision=32 )
 
     @assert size(input1) .== size(input2) "PIV inputs need to have the same size."
     
@@ -218,42 +186,7 @@ function PIV_singlethreaded_and_GPU( input1, input2, pivparams; precision=32 )
 end
 
 
-
-"""
-    TODO: CPU(multi_thread)s-GPU PIV. 
-"""
-function PIV_multithreaded_and_GPU( input1, input2, pivparams; precision=32 )
-
-    @assert size(input1) .== size(input2) "PIV inputs need to have the same size."
-    
-    corr_alg = pivparams.corr; 
-
-    # PREALLOCATING RESULTS: VECTOR FIELD + SIGNAL-TO-NOISE MATRIX
-	VF, SN = allocate_outputs( size(input1), pivparams, precision=precision)
-
-	# MULTISCALE LOOP
-	for scale in pivparams.multipass:-1:1 
-		
-        # ALLOCATING DATA FOR EACH THREAD/STREAM
-		tmp_data = [ allocate_tmp_data( corr_alg, scale, pivparams, precision=precision ) for tidx in nthreads ]
-        
-		#@threads ... 
-			# EACH THREAD/STREAM PROCESSES AN INTERROGATION/SEARCH REGION
-			IA_start  = get_interrogation_origin( idx, size(input1), s )
-
-			# ONE-LINER TO COMPUTE CROSS-CORRELATION AND FIND MAXIMUM PEAK
-            displ, SN = crosscorrelate_and_return_displacement( corr_alg, IA_start, mp, pivparams, tmp_data[tidx] )
-			
-			# UPDATING THE VECTOR FIELD
-			# vf_coords = ... 
-			update_vectorfield!( VF, SN, vf_coords, displ )
-		#end
-
-		# SYNCH THREADS
-	end
-
-end
-
-
+include("./additional_analyses/utils_patch_matching_across_stacks.jl")
+include("./additional_analyses/patch_matching_across_stack.jl")
 
 end 

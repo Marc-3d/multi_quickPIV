@@ -87,7 +87,7 @@ end
     coord_data = [ IA_TLF, IA_BRB, SA_TLF, SA_BRB, SA_TLF_off, SA_BRB_off ].
 """
 
-function copy_inter_region!( pad_F, F, coord_data::NTuple{6,N} ) where {N}
+function copy_inter_region!( pad_F, F, coord_data::NTuple{N,T} ) where {N,T}
     copy_inter_region!( pad_F, F, coord_data[1], coord_data[2] )
 end
 
@@ -97,7 +97,7 @@ function copy_inter_region!( pad_F, F, IR_TLF, IR_BRB )
     pad_F[ Base.OneTo.(size_F)... ] .= F[ UnitRange.(IR_TLF,IR_BRB)... ]
 end
 
-function copy_search_region!( pad_G, G, coord_data::NTuple{6,N} ) where {N}
+function copy_search_region!( pad_G, G, coord_data::NTuple{N,T} ) where {N,T}
     copy_search_region!( pad_G, G, coord_data[3], coord_data[4], coord_data[5] )
 end
 
@@ -156,7 +156,7 @@ function makeplot( N, isize, step )
 end
 
 =#
-function get_vf_coords( inter_index, input_size::Dims{N}, pivparams::PIVParameters, scale ) where {N}
+function get_vf_coords( inter_index, input_size::Dims{N}, pivparams::PIVParameters, scale=1 ) where {N}
 
     if scale == 1
         VFsize    = get_vectorfield_size( input_size, pivparams, scale );
