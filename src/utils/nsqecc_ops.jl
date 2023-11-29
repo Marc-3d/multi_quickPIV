@@ -70,7 +70,8 @@ function add_numerator_nsqecc( pad_arr::AbstractArray{T1,2},
     # 
     ih, iw = inter_size;
     mh, mw = search_margin;
-    T, L, D, R = 1:2*mh, 1:2*mw, 1+ih:2*mh+ih, 1+iw:2*mw+iw;
+    T , L  = 1:2*mh, 1:2*mw
+    D , R  = 1+ih:2*mh+ih, 1+iw:2*mw+iw;
 
     pad_view .+= view( int_arr, D, R );
     pad_view .+= view( int_arr, T, L );
@@ -89,7 +90,8 @@ function add_numerator_nsqecc( pad_arr::AbstractArray{T1,3},
     # 
     ih, iw, id = inter_size;
     mh, mw, md = search_margin;
-    T, L, F, D, R, B = 1:2*mh, 1:2*mw, 1:2*md, 1+ih:2*mh+ih, 1+iw:2*mw+iw, 1+id:2*md+id;
+    T , L , F  = 1:2*mh, 1:2*mw, 1:2*md
+    D , R , B  = 1+ih:2*mh+ih, 1+iw:2*mw+iw, 1+id:2*md+id;
 
     pad_view .+= view( int_arr, D, R, B );
     pad_view .-= view( int_arr, T, L, F );
@@ -102,7 +104,7 @@ function add_numerator_nsqecc( pad_arr::AbstractArray{T1,3},
 end
 
 function fftcc2nsqecc!( pad_F, pad_G, int2_G, sumF2, size_F, size_G  )
-
+    
     # 1-. identifying the range of fully-overlapping translations
     marg_G = div.( size_G .- size_F, 2 ); 
     fovp = UnitRange.( 1, 2 .* marg_G  ); 
@@ -115,7 +117,7 @@ function fftcc2nsqecc!( pad_F, pad_G, int2_G, sumF2, size_F, size_G  )
     # 3.2-. Computing denominator within pad_G. 
     pad_G[ fovp... ] .= 0.0
     add_numerator_nsqecc( pad_G, int2_G, size_F, marg_G ) # sum(G²)
-    pad_G[ fovp... ] .= sqrt.( pad_G[ fovp... ] )         # √sum(G²)
+    pad_G[ fovp... ] .= pad_G[ fovp... ]                  # √sum(G²)
     pad_G[ fovp... ] .*= sqrt( sumF2 )                    # √sum(F²)√sum(G²)
 
     # 3.3-. numerator / denominator within pad_F

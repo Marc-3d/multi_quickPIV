@@ -89,7 +89,7 @@ end
   
 """
 
-function _FFTCC!( pad_F, pad_G, r2c_plan, c2r_plan, csize, scale, pivparams::PIVParameters )
+function _FFTCC!( pad_F::Array{T,N}, pad_G::Array{T,N}, r2c_plan, c2r_plan, csize, scale, pivparams::PIVParameters ) where {T<:AbstractFloat, N}
   return _FFTCC!( pad_F, pad_G, r2c_plan, c2r_plan, csize, pivparams.unpadded, _isize(pivparams,scale) ); 
 end
 
