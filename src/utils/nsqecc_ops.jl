@@ -117,7 +117,7 @@ function fftcc2nsqecc!( pad_F, pad_G, int2_G, sumF2, size_F, size_G  )
     # 3.2-. Computing denominator within pad_G. 
     pad_G[ fovp... ] .= 0.0
     add_numerator_nsqecc( pad_G, int2_G, size_F, marg_G ) # sum(G²)
-    pad_G[ fovp... ] .= pad_G[ fovp... ]                  # √sum(G²)
+    pad_G[ fovp... ] .= sqrt.( pad_G[ fovp... ] )         # √sum(G²)
     pad_G[ fovp... ] .*= sqrt( sumF2 )                    # √sum(F²)√sum(G²)
 
     # 3.3-. numerator / denominator within pad_F
