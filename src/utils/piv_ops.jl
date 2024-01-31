@@ -285,3 +285,30 @@ function gaussian_3D( up::T, down::T, left::T, right::T, front::T, back::T, mx::
              ( left - right)/( 2* left - 4*mx + 2*right ),
              (front - back )/( 2*front - 4*mx + 2*back  ) ];
 end
+
+"""
+    Some signal to NOISE implementation
+"""
+
+# autocorr
+function compute_SN( pivparams, tmp_data, coord_data )
+    compute_SN( tmp_data, _smarg( pivparams ), coord_data[5], coord_data[6] )
+end
+function compute_SN( tmp_data, SM::Dims{N}, SR_TLF_off, SR_BRB_off ) where {N}
+
+    corr = tmp_data[1]; 
+
+    cntr = SM .+ 1; 
+    trans_TL = ones(Int64,N) .+ SR_TLF_off
+    trans_F  = (   N == 2  ) ? 1 : 1 + SR_TLF_off[3]
+    trans_BR = ones(Int64,N) .* ( 2 .* SM  ) .-  SR_BRB_off; 
+    trans_B  = (   N == 2  ) ? 1 : 1 + 2 * SM[3] - SR_BRB_off[3]; 
+    TLF  = ( trans_TL..., trans_F )
+    BRB  = ( trans_BR..., trans_B )
+    fovp = UnitRange.( TLF, BRB ); 
+    len  = prod( length.( fovp ) ); 
+    mid  = corr[ cntr... ]
+    avg  = ( sum( corr[ fovp... ] ) - mid )/(len-1)
+
+    return mid/avg; 
+end

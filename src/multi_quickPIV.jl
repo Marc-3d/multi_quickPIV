@@ -82,7 +82,7 @@ function PIV_CPU( input1::AbstractArray{<:Real,N},
             
             # (OPTIONAL) COMPUTING SIGNAL-TO-NOISE RATIO
             if scale == 1 && pivparams.computeSN
-                SN[vf_idx] = compute_SN( pivparams, tmp_data );
+                SN[vf_idx] = compute_SN( pivparams, tmp_data, coord_data );
             end
         end
 		

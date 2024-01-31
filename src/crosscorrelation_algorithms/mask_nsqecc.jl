@@ -141,7 +141,7 @@ function _mask_NSQECC!( pad_maskF::Array{T,N}, pad_G::Array{T,N},
                         ovp_th=0.5 ) where {T<:AbstractFloat,N}
 
     # COMPUTING THE TOTAL NUMBER OF 1'S IN THE MASK
-    maxN = 0
+    maxN  = 0
     sumF2 = 0.0
     D = ( N == 2 ) ? 1 : size_F[3]; 
     @inbounds for z in 1:D, x in 1:size_F[2], y in 1:size_F[1]
