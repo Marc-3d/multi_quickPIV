@@ -90,16 +90,14 @@ end
 """
 
 function _FFTCC!( pad_F::Array{T,N}, pad_G::Array{T,N}, r2c_plan, c2r_plan, csize, scale, pivparams::PIVParameters ) where {T<:AbstractFloat, N}
-  return _FFTCC!( pad_F, pad_G, r2c_plan, c2r_plan, csize, pivparams.unpadded, _isize(pivparams,scale) ); 
+  return _FFTCC!( pad_F, pad_G, r2c_plan, c2r_plan, csize ); 
 end
 
 function _FFTCC!( pad_F::Array{T,N}, # padded interrogation region
                   pad_G::Array{T,N}, # padded search region
                   r2c_plan,          # forward inplace real FFT plan
                   c2r_plan,          # backward inplace real FFT plan
-                  csize,             # size of the cross-correlation matrix after padding
-                  unpadded=true,     # if true, we don't need circshift. If false, we do.
-                  size_F=(1,1,1)     # if we circshift, we need the interrogation size
+                  csize              # size of the cross-correlation matrix after padding
                 ) where {T<:AbstractFloat,N}
 
   # FORWARD IN-PLACE TRANSFORMS OF PAD_G AND PAD_F. 
@@ -115,15 +113,6 @@ function _FFTCC!( pad_F::Array{T,N}, # padded interrogation region
   # NORMALIZING THE RESULTS, OTHERWISE R2C/C2R SCALES BY THE NUMBER OF INPUTS 
   pad_F ./= T( prod( csize ) )
 
-  # BY DEFAULT, WE WISH TO AVOID CIRCSHIFT. THIS IS HERE FOR GENERALITY'S SAKE.
-  if !unpadded
-    r2c_pad = size(pad_F) .- csize; 
-    Base.circshift!(  view( pad_G, UnitRange.( 1, size(pad_F) .- r2c_pad )... ),
-                      view( pad_F, UnitRange.( 1, size(pad_F) .- r2c_pad )... ),
-                      size_F .- 1 ); 
-    pad_F .= pad_G   
-  end
-
   return nothing
 end
 
@@ -132,7 +121,6 @@ end
   Out-of-place implementation of FFTC for debugging and general cross-correlation
   applications.
 """
-
 function _FFTCC( F::Array{T,N}, G::Array{T,N}; 
                  precision = 32, 
                  good_pad  = false, 
@@ -149,7 +137,15 @@ function _FFTCC( F::Array{T,N}, G::Array{T,N};
   tmp_data[1][Base.OneTo.(size(F))...] .= F
   tmp_data[2][Base.OneTo.(size(G))...] .= G
 
-  _FFTCC!( tmp_data..., circshift && unpadded, size(F) )
+  _FFTCC!( tmp_data... )
+
+  if circshift
+    r2c_pad = size(tmp_data[1]) .- tmp_data[end]; 
+    Base.circshift!(  view( tmp_data[2], UnitRange.( 1, size(tmp_data[1]) .- r2c_pad )... ),
+                      view( tmp_data[1], UnitRange.( 1, size(tmp_data[1]) .- r2c_pad )... ),
+                      size(F) .- 1 ); 
+    tmp_data[1] .= tmp_data[2]   
+  end
 
   destroy_fftw_plans( FFTCC(), tmp_data )
 

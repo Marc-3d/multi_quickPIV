@@ -120,7 +120,6 @@ function conv_dot!( pad_G, pad_F )
 end
 
 """
-
     By definition the size of the cross-correlation matrix for each dimension is 
     "N + M - 1", which is the number of possible translations in each dimension. 
     In quickPIV we are only interested in fully overlapping translations, so we 

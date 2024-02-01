@@ -217,8 +217,10 @@ function gaussian_displacement( corr_mat, scale, pivparams::PIVParameters, coord
     # cross-correlation maximum peak coordinates 
     if pivparams.unpadded
         # if unpadded --> only check full ovps
-        center       = _smarg( pivparams, scale ) .+ 1; 
-        peak, maxval = first_fullovp_peak( corr_mat, _smarg( pivparams, scale ), coord_data[5], coord_data[6] )
+        # unpadded cross-correlation center is very simple, searchMargin .+ 1. 
+        SM           = _smarg( pivparams, scale )
+        center       = SM .+ 1; 
+        peak, maxval = first_fullovp_peak( corr_mat, SM, coord_data[5], coord_data[6] )
     else
         # else        --> check all translation except r2c_pad
         csize        = tmp_data[end]
@@ -227,7 +229,6 @@ function gaussian_displacement( corr_mat, scale, pivparams::PIVParameters, coord
         peak, maxval = first_fullovp_peak( corr_mat, csize, coord_data[5], coord_data[6] )
     end
     # println( peak, center )
-    # unpadded cross-correlation center is very simple, searchMargin .+ 1. 
     displacement = center .- gaussian_refinement( corr_mat, peak, maxval )
 
     return displacement
@@ -237,7 +238,7 @@ function gaussian_displacement( corr_mat, isize::Dims{N}, ssize::Dims{N} ) where
 
     peak, maxval = first_peak( corr_mat )
     center = div.( isize, 2 ) .+ div.( ssize, 2 )
-    return gaussian_refinement( corr_mat, peak, maxval ) .- center
+    return center .- gaussian_refinement( corr_mat, peak, maxval )
 end
 
 function gaussian_refinement( corr_mat::Array{T,N}, peak, maxval ) where {T,N}
