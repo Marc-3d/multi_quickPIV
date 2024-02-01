@@ -70,8 +70,8 @@ end
 
 # constructor with default values
 function setPIVParameters(; corr_alg = "nsqecc", 
-                            unpadded = true, good_pad = true, odd_pad = true, 
-                            interSize = 32, searchMargin = 0,  overlap = 0, step = nothing, 
+                            unpadded = true, good_pad = true, odd_pad = false, 
+                            interSize = 32, searchMargin = 10,  overlap = 0, step = nothing, 
                             multipass = 1, computeSN = false, 
                             filtFun = (x)->maxval(x), threshold = -1.0, 
                             ndims = 3, ovp_th = 0.5 )

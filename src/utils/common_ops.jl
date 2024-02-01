@@ -82,9 +82,9 @@ end
 
 function first_fullovp_peak( cmat::Array{T,N}, SM, SR_TLF_off, SR_BRB_off ) where {T,N}
 
-    trans_TL = ones(Int64,N) .+ SR_TLF_off
+    trans_TL = ones(Int64,N) .+ SR_TLF_off[1:N]
     trans_F  = ( N == 2 ) ? 1 : 1 + SR_TLF_off[3]
-    trans_BR = ones(Int64,N) .+ 2 .* SM .-  SR_BRB_off; 
+    trans_BR = ones(Int64,N) .+ 2 .* SM[1:N] .-  SR_BRB_off[1:N]; 
     trans_B  = ( N == 2 ) ? 1 : 1 + 2 * SM[3] - SR_BRB_off[3]; 
 
     max_value = 0; 

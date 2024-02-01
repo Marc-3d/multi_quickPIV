@@ -212,14 +212,13 @@ end
     GAUSSIAN SUBPIXEL APPROXIMATION.
 """
 
-function gaussian_displacement( corr_mat, scale, pivparams::PIVParameters, coord_data, tmp_data )
+function gaussian_displacement( corr_mat::Array{T,N}, scale, pivparams::PIVParameters, coord_data, tmp_data ) where {T,N}
 
     # cross-correlation maximum peak coordinates 
     if pivparams.unpadded
         # if unpadded --> only check full ovps
-        # unpadded cross-correlation center is very simple, searchMargin .+ 1. 
         SM           = _smarg( pivparams, scale )
-        center       = SM .+ 1; 
+        center       = SM[1:N] .+ 1; 
         peak, maxval = first_fullovp_peak( corr_mat, SM, coord_data[5], coord_data[6] )
     else
         # else        --> check all translation except r2c_pad
@@ -229,7 +228,7 @@ function gaussian_displacement( corr_mat, scale, pivparams::PIVParameters, coord
         peak, maxval = first_fullovp_peak( corr_mat, csize, coord_data[5], coord_data[6] )
     end
     # println( peak, center )
-    displacement = center .- gaussian_refinement( corr_mat, peak, maxval )
+    displacement = gaussian_refinement( corr_mat, peak, maxval ) .- center
 
     return displacement
 end
@@ -238,7 +237,7 @@ function gaussian_displacement( corr_mat, isize::Dims{N}, ssize::Dims{N} ) where
 
     peak, maxval = first_peak( corr_mat )
     center = div.( isize, 2 ) .+ div.( ssize, 2 )
-    return center .- gaussian_refinement( corr_mat, peak, maxval )
+    return gaussian_refinement( corr_mat, peak, maxval ) .- center
 end
 
 function gaussian_refinement( corr_mat::Array{T,N}, peak, maxval ) where {T,N}
@@ -255,8 +254,8 @@ end
 # 3-point Gaussian subpixel 2D from the pixel neighbourhood around the max peak 
 function gaussian( corr_mat::Array{T,2}, peak, maxval::T, minval::T=0 ) where {T}
 
-    return gaussian_2D( log(1+corr_mat[peak[1]+1,peak[2]]-minval), 
-                        log(1+corr_mat[peak[1]-1,peak[2]]-minval), 
+    return gaussian_2D( log(1+corr_mat[peak[1]-1,peak[2]]-minval), 
+                        log(1+corr_mat[peak[1]+1,peak[2]]-minval), 
                         log(1+corr_mat[peak[1],peak[2]-1]-minval), 
                         log(1+corr_mat[peak[1],peak[2]+1]-minval), 
                         log(1+maxval-minval) ); 
@@ -265,8 +264,8 @@ end
 # 3-point Gaussian subpixel 3D from the voxel neighbourhood around the max peak
 function gaussian( corr_mat::Array{T,3}, peak, maxval::T, minval::T=0 ) where {T<:AbstractFloat} 
 
-    return gaussian_3D( log(1+corr_mat[peak[1]+1,peak[2],peak[3]]-minval), 
-                        log(1+corr_mat[peak[1]-1,peak[2],peak[3]]-minval), 
+    return gaussian_3D( log(1+corr_mat[peak[1]-1,peak[2],peak[3]]-minval), 
+                        log(1+corr_mat[peak[1]+1,peak[2],peak[3]]-minval), 
                         log(1+corr_mat[peak[1],peak[2]-1,peak[3]]-minval), 
                         log(1+corr_mat[peak[1],peak[2]+1,peak[3]]-minval), 
                         log(1+corr_mat[peak[1],peak[2],peak[3]-1]-minval), 
