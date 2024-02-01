@@ -214,21 +214,26 @@ end
 
 function gaussian_displacement( corr_mat::Array{T,N}, scale, pivparams::PIVParameters, coord_data, tmp_data ) where {T,N}
 
+    # these determine offsets of full-overlapping translations
+    SR_TLF_off = coord_data[5]; 
+    SR_BRB_off = coord_data[6]; 
+    SM         = _smarg( pivparams, scale )
+
     # cross-correlation maximum peak coordinates 
     if pivparams.unpadded
         # if unpadded --> only check full ovps
-        SM           = _smarg( pivparams, scale )
         center       = SM[1:N] .+ 1; 
-        peak, maxval = first_fullovp_peak( corr_mat, SM, coord_data[5], coord_data[6] )
+        peak, maxval = first_fullovp_peak( corr_mat, SM, SR_TLF_off, SR_BRB_off )
     else
         # else        --> check all translation except r2c_pad
+        println("ERROR: all gaussian_displacement should be unpadded.")
         csize        = tmp_data[end]
         r2c          = size( tmp_data[1] ) .- csize; 
         center       = div.( csize, 2 )
-        peak, maxval = first_fullovp_peak( corr_mat, csize, coord_data[5], coord_data[6] )
+        peak, maxval = first_fullovp_peak( corr_mat, csize, SR_TLF_off, SR_BRB_off )
     end
     # println( peak, center )
-    displacement = gaussian_refinement( corr_mat, peak, maxval ) .- center
+    displacement = gaussian_refinement( corr_mat, peak, maxval, SM, SR_TLF_off, SR_BRB_off ) .- center
 
     return displacement
 end
@@ -240,9 +245,9 @@ function gaussian_displacement( corr_mat, isize::Dims{N}, ssize::Dims{N} ) where
     return gaussian_refinement( corr_mat, peak, maxval ) .- center
 end
 
-function gaussian_refinement( corr_mat::Array{T,N}, peak, maxval ) where {T,N}
+function gaussian_refinement( corr_mat::Array{T,N}, peak, maxval, SM, SR_TLF_off, SR_BRB_off ) where {T,N}
 
-    if all( peak .> 1 ) && all( peak .< size(corr_mat) )
+    if all( peak .> 1 .+ SR_TLF_off ) && all( peak .< 1 .+ 2 .* SM .- SR_BRB_off )
         minval = minimum( corr_mat[ UnitRange.( peak .- ones(Int,N), peak .+ ones(Int,N) )... ] )
         gaussi = gaussian( corr_mat, peak, maxval, T(minval) )
         return peak .+ gaussi

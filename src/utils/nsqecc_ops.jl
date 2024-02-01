@@ -107,7 +107,7 @@ function fftcc2nsqecc!( pad_F, pad_G, int2_G, sumF2, size_F, size_G  )
     
     # 1-. identifying the range of fully-overlapping translations
     marg_G = div.( size_G .- size_F, 2 ); 
-    fovp = UnitRange.( 1, 2 .* marg_G  ); 
+    fovp = UnitRange.( 1, 1 .+ 2 .* marg_G  ); 
 
     # 2-. Manipulating pad_F, which initially contains sum(G*F) for all translations
     pad_F[ fovp... ] .*= -2;                              # - 2sum(G*F)
