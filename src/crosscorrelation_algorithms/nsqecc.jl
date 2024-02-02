@@ -49,20 +49,20 @@ function allocate_tmp_data( ::NSQECC,
                             odd_pad=true  
                           ) where {N}
 
-  csize1, r2c_pad, corr_pad = compute_csize_and_paddings( isize, ssize, 
+  csize, r2c_pad, corr_pad = compute_csize_and_paddings( isize, ssize, 
                                                           unpadded=unpadded, 
                                                           good_pad=good_pad, 
                                                           odd_pad=odd_pad )
 
-  pad_csize  = csize1 .+ r2c_pad;
+  pad_csize  = csize .+ r2c_pad;
   pad_ctype  = ( precision == 32 ) ? Float32 : Float64; 
   pad_inter  = zeros( pad_ctype,  pad_csize ); 
   pad_search = zeros( pad_ctype,  pad_csize ); 
   int_search = zeros( pad_ctype, ssize .+ 1 ); 
-  r2c_plan   = inplace_r2c_plan( pad_inter , csize1 );  
-  c2r_plan   = inplace_c2r_plan( pad_search, csize1 );
+  r2c_plan   = inplace_r2c_plan( pad_inter , csize );  
+  c2r_plan   = inplace_c2r_plan( pad_search, csize );
 
-  return ( pad_inter, pad_search, int_search, r2c_plan, c2r_plan, csize1 )  
+  return ( pad_inter, pad_search, int_search, r2c_plan, c2r_plan, csize )  
 end
 
 

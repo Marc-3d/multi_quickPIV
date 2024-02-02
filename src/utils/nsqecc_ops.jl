@@ -65,13 +65,13 @@ function add_numerator_nsqecc( pad_arr::AbstractArray{T1,2},
                                search_margin ) where {T1}
 
     # fully-overlapping translations
-    pad_view = view( pad_arr, UnitRange.( 1, 2 .* search_margin )... ); 
+    pad_view = view( pad_arr, UnitRange.( 1, 1 .+ 2 .* search_margin )... ); 
 
     # 
     ih, iw = inter_size;
     mh, mw = search_margin;
-    T , L  = 1:2*mh, 1:2*mw
-    D , R  = 1+ih:2*mh+ih, 1+iw:2*mw+iw;
+    T , L  = 1:2*mh+1, 1:2*mw+1
+    D , R  = 1+ih:2*mh+1+ih, 1+iw:2*mw+1+iw;
 
     pad_view .+= view( int_arr, D, R );
     pad_view .+= view( int_arr, T, L );
@@ -85,13 +85,13 @@ function add_numerator_nsqecc( pad_arr::AbstractArray{T1,3},
                                search_margin ) where {T1}
 
     # fully-overlapping translations
-    pad_view = view( pad_arr, UnitRange.( 1, 2 .* search_margin )... ); 
+    pad_view = view( pad_arr, UnitRange.( 1, 1 .+ 2 .* search_margin )... ); 
 
     # 
     ih, iw, id = inter_size;
     mh, mw, md = search_margin;
-    T , L , F  = 1:2*mh, 1:2*mw, 1:2*md
-    D , R , B  = 1+ih:2*mh+ih, 1+iw:2*mw+iw, 1+id:2*md+id;
+    T , L , F  = 1:2*mh+1, 1:2*mw+1, 1:2*md+1
+    D , R , B  = 1+ih:2*mh+1+ih, 1+iw:2*mw+1+iw, 1+id:2*md+1+id;
 
     pad_view .+= view( int_arr, D, R, B );
     pad_view .-= view( int_arr, T, L, F );
