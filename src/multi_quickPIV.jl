@@ -14,6 +14,7 @@ include("./crosscorrelation_algorithms/fftcc.jl")
 include("./crosscorrelation_algorithms/zncc.jl")
 include("./crosscorrelation_algorithms/nsqecc.jl")
 include("./crosscorrelation_algorithms/mask_nsqecc.jl")
+include("./postprocessing/postprocessing.jl")
 #include("./convolution_algorithms/fftc.jl")
 
 # STANDARD PIV 
@@ -22,8 +23,8 @@ function PIV( input1, input2, pivparams::PIVParameters; precision=32 )
 end
 
 # MASKED PIV
-function PIV( input1, input2, mask, pivparams::PIVParameters, precision=32 )
-	return PIV_CPU_masked( input1, input2, mask, pivparams, precision  )
+function PIV( input1, input2, mask, pivparams::PIVParameters; precision=32 )
+	return PIV_CPU_masked( input1, input2, mask, pivparams, precision=precision  )
 end
 
 
@@ -97,7 +98,7 @@ end
 function PIV_CPU_masked( input1::AbstractArray{<:Real,N}, 
 						 input2::AbstractArray{<:Real,N}, 
 						 mask::AbstractArray{<:Real,N}, 
-						 pivparams::PIVParameters, 
+						 pivparams::PIVParameters; 
 						 precision=32
 					   ) where {N}
 

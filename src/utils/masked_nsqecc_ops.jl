@@ -124,7 +124,7 @@ function fftcc2masknsqecc!( pad_maskF, pad_G2, sumF2, size_F, size_G  )
 
     # 1-. identifying the range of fully-overlapping translations
     marg_G = div.( size_G .- size_F, 2 ); 
-    fovp = UnitRange.( 1, 2 .* marg_G  ); 
+    fovp = UnitRange.( 1, 1 .+ 2 .* marg_G  ); 
 
     # 2-. pad_maskF : sum( mask_F * G ) -> sum(F²) + sum(G²) - 2sum(mask_F*G)
     pad_maskF[ fovp... ] .*= -2;                  # - 2sum(mask_F*G)
