@@ -84,8 +84,7 @@ end
         PIV3D.medianReplace --> replaces outlider vector by the median vector
         PIV3D.meanReplace ----> replaces outlier vectors by the mean vector
 """
-function SNFilter( SN::Array{<:Real,N}, th, arrays::Array{T,N}...; 
-				   replace::Function=zeroReplace, radius=0 ) where {T,N}
+function SNFilter( SN::Array{<:Real,N}, th, arrays::Array{T,N}...;  replace::Function=zeroReplace, radius=0 ) where {T,N}
 
     filtered = [ copy( arrays[idx] ) for idx in 1:length(arrays) ];
     mask     = Bool.( SN .< th );
@@ -113,8 +112,7 @@ end
         PIV3D.medianReplace --> replaces outlider vector by the median vector
         PIV3D.meanReplace ----> replaces outlier vectors by the mean vector
 """
-function stdFilter( n, arrays::Array{T,N}...; 
-				   replace::Function=zeroReplace, radius=0 ) where {T,N}
+function stdFilter( n, arrays::Array{T,N}...; replace::Function=zeroReplace, radius=0 ) where {T,N}
 
     filtered = [ copy( arrays[idx] ) for idx in 1:length(arrays) ];
 
@@ -170,7 +168,7 @@ end
 
 """ Spatial averaging for 2D vector fields"""
 
-function spaceAveraging( avg_radius::Int, arrays::Array{T,N}...; th=0.1 ) where {T}
+function spaceAveraging( avg_radius::Int, arrays::Array{T,N}...; th=0.1 ) where {T,N}
     return spaceAveraging( ones( Int, N ) .* avg_radius,arrays... ); 
 end
 
