@@ -391,12 +391,73 @@ function spaceTimeAveraging( avg_rs::NTuple{3,Int}, avg_rt::Int, u::Array{T,4}, 
     return u_avg, v_avg, w_avg
 end
 
-function similarityAveraging3D( avg_radius::Int, U::Array{T,3}, V::Array{T,3}, W::Array{T,3}; st=0.0 ) where {T<:AbstractFloat}
-    return similarityAveraging3D( (avg_radius,avg_radius,avg_radius), U, V, W, st=st )
+function similarityAveraging( avg_radius::Int, arrays::Array{T,N}...; st=0.0 ) where {T<:AbstractFloat,N}
+    return similarityAveraging( ones( Int, N ) .* avg_radius, arrays..., st=st )
 end
 
 """ Spatial averaging + similarity thresholding combo """
-function similarityAveraging3D( avg_radius::NTuple{3,Int}, U::Array{T,3}, V::Array{T,3}, W::Array{T,3}; st=0.0 ) where {T<:AbstractFloat}
+function similarityAveraging( avg_radius::NTuple{2,Int}, U::Array{T,2}, V::Array{T,2}; st=0.0 ) where {T<:AbstractFloat}
+
+    u_avg = zeros( T, size(U) );
+    v_avg = zeros( T, size(V) );
+    h, w  = size( U )
+
+    for col in 1:w
+        cmin = max( 1, col-avg_radius[2] );
+        cmax = min( w, col+avg_radius[2] );
+
+        for row in 1:h
+
+            u1 = U[row,col]
+            v1 = V[row,col]
+            mag = sqrt( u1*u1 + v1*v1 )
+            if mag == 0
+                continue
+            end
+
+            nu1 = U[row,col]/mag
+            nv1 = V[row,col]/mag
+
+            rmin = max( 1, row-avg_radius[1] );
+            rmax = min( h, row+avg_radius[1] );
+
+            len  = length(rmin:rmax)*length(cmin:cmax);
+
+            # variables to hold the averaged vector component
+            mean_u = 0.0;
+            mean_v = 0.0;
+
+            # counter of similar neighbouring vectors
+            n  = 0;
+
+            for x in cmin:cmax
+                for y in rmin:rmax
+
+                    mag2 = sqrt( U[y,x]^2 + V[y,x]^2 )
+                    nu2  = U[y,x]/mag2
+                    nv2  = V[y,x]/mag2
+                    dot  = nu1*nu2 + nv1*nv2
+
+                    if dot > st
+                        mean_u += U[y,x]
+                        mean_v += V[y,x]
+                        n += 1;
+                    end
+                end
+            end
+
+            sim  = (n/len)^2;
+            mmag = sqrt( mean_u*mean_u + mean_v*mean_v );
+
+            u_avg[ row, col ] = mean_u/mmag * sim;
+            v_avg[ row, col ] = mean_v/mmag * sim;
+        end
+    end
+
+    return u_avg, v_avg
+end
+
+function similarityAveraging( avg_radius::NTuple{3,Int}, U::Array{T,3}, V::Array{T,3}, W::Array{T,3}; st=0.0 ) where {T<:AbstractFloat}
 
     u_avg   = zeros( T, size(U) );
     v_avg   = zeros( T, size(V) );
