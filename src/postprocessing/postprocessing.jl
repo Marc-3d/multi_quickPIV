@@ -4,11 +4,11 @@
     require them.
 =#
 
-function zeroReplace( coords::NTuple{N,I}, radius::I, arrays::Array{T,N}... ) where {T,N}
+function zeroReplace( coords::NTuple{N,Int}, radius::Int, arrays::Array{T,N}... ) where {T,N}
     return zeros( T, length(arrays) );
 end
 
-function medianReplace( coords::NTuple{N,I}, radius::I, arrays::Array{T,N}... ) where {T,N}
+function medianReplace( coords::NTuple{N,Int}, radius::Int, arrays::Array{T,N}... ) where {T,N}
     mincoords = max.( 1, coords .- radius );
     maxcoords = min.( size(arrays[1]), coords .+ radius );
     medians   = zeros( T, length( arrays ) );
@@ -18,7 +18,7 @@ function medianReplace( coords::NTuple{N,I}, radius::I, arrays::Array{T,N}... ) 
     return medians
 end
 
-function meanReplace( coords::NTuple{N,I}, radius::I, arrays::Array{T,N}... ) where {T,N}
+function meanReplace( coords::NTuple{N,Int}, radius::Int, arrays::Array{T,N}... ) where {T,N}
     mincoords = max.( 1, coords .- radius );
     maxcoords = min.( size(arrays[1]), coords .+ radius );
     means     = zeros( T, length( arrays ) );
