@@ -1,3 +1,5 @@
+using Statistics 
+
 #=
     Replacement functions accept a coordinate and a radius argument ( a part from the vector
     field components ). zeroRepalce does not use the coordinate or radius, but mean and median
@@ -169,7 +171,7 @@ end
 """ Spatial averaging for 2D vector fields"""
 
 function spaceAveraging( avg_radius::Int, arrays::Array{T,N}...; th=0.1 ) where {T,N}
-    return spaceAveraging( Tuple( ones( Int, N ) ) .* avg_radius,arrays... ); 
+    return spaceAveraging( Tuple( ones( Int, N ) ) .* avg_radius, arrays... ); 
 end
 
 function spaceAveraging( avg_radius::NTuple{2,Int}, u::Array{T,2}, v::Array{T,2}; 
