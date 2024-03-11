@@ -169,7 +169,7 @@ end
 """ Spatial averaging for 2D vector fields"""
 
 function spaceAveraging( avg_radius::Int, arrays::Array{T,N}...; th=0.1 ) where {T,N}
-    return spaceAveraging( ones( Int, N ) .* avg_radius,arrays... ); 
+    return spaceAveraging( Tuple( ones( Int, N ) ) .* avg_radius,arrays... ); 
 end
 
 function spaceAveraging( avg_radius::NTuple{2,Int}, u::Array{T,2}, v::Array{T,2}; 
@@ -264,7 +264,7 @@ end
 
 """ space-time averaging """ 
 function spaceTimeAveraging( avg_rs::Int, avg_rt::Int, u::Array{T,3}, v::Array{T,3}; th=0.0 )  where {T<:AbstractFloat}
-    return spaceTimeAveraging( ones( Int, 2 ) .* avg_rs, avg_rt, u, v; th=th )
+    return spaceTimeAveraging( Tuple( ones( Int, 2 ) ) .* avg_rs, avg_rt, u, v; th=th )
 end
 
 function spaceTimeAveraging( avg_rs::NTuple{2,Int}, avg_rt::Int, u::Array{T,3}, v::Array{T,3}; th=0.0 )  where {T<:AbstractFloat}
@@ -323,7 +323,7 @@ end
 """ space-time averaging """ 
 
 function spaceTimeAveraging( avg_rs::Int, avg_rt::Int, u::Array{T,4}, v::Array{T,4}, w::Array{T,4}; th=0.0 )  where {T<:AbstractFloat}
-    return spaceTimeAveraging( ones( Int, 3 ) .* avg_rs, avg_rt, u, v, w, th=th ); 
+    return spaceTimeAveraging( Tuple( ones( Int, 3 ) ) .* avg_rs, avg_rt, u, v, w, th=th ); 
 end
 
 function spaceTimeAveraging( avg_rs::NTuple{3,Int}, avg_rt::Int, u::Array{T,4}, v::Array{T,4}, w::Array{T,4}; th=0.0 )  where {T<:AbstractFloat}
@@ -392,7 +392,7 @@ function spaceTimeAveraging( avg_rs::NTuple{3,Int}, avg_rt::Int, u::Array{T,4}, 
 end
 
 function similarityAveraging( avg_radius::Int, arrays::Array{T,N}...; st=0.0 ) where {T<:AbstractFloat,N}
-    return similarityAveraging( ones( Int, N ) .* avg_radius, arrays..., st=st )
+    return similarityAveraging( Tuple( ones( Int, N ) ) .* avg_radius, arrays..., st=st )
 end
 
 """ Spatial averaging + similarity thresholding combo """
@@ -533,7 +533,7 @@ function similarityAveraging( avg_radius::NTuple{3,Int}, U::Array{T,3}, V::Array
 end
 
 function similaritySpeedAveraging3D( avg_radius::Int, U::Array{T,3}, V::Array{T,3}, W::Array{T,3}; st=0.0, nt=0.1 ) where {T<:AbstractFloat}
-    return similaritySpeedAveraging3D( ones( 3, Int ) .* avg_radius, U, V, W, st=st, nt=nt ); 
+    return similaritySpeedAveraging3D( Tuple( ones( 3, Int ) ) .* avg_radius, U, V, W, st=st, nt=nt ); 
 end
 
 function similaritySpeedAveraging3D( avg_radius::NTuple{3,Int}, U::Array{T,3}, V::Array{T,3}, W::Array{T,3}; st=0.0, nt=0.1 ) where {T<:AbstractFloat}
