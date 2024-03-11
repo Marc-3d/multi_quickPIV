@@ -324,11 +324,11 @@ end
 
 """ space-time averaging """ 
 
-function spaceTimeAveraging( avg_rs::I, avg_rt::I, u::Array{T,4}, v::Array{T,4}, w::Array{T,4}; th=0.0 )  where {T<:AbstractFloat}
+function spaceTimeAveraging( avg_rs::Int, avg_rt::Int, u::Array{T,4}, v::Array{T,4}, w::Array{T,4}; th=0.0 )  where {T<:AbstractFloat}
     return spaceTimeAveraging( ones( Int, 3 ) .* avg_rs, avg_rt, u, v, w, th=th ); 
 end
 
-function spaceTimeAveraging( avg_rs::I, avg_rt::I, u::Array{T,4}, v::Array{T,4}, w::Array{T,4}; th=0.0 )  where {T<:AbstractFloat}
+function spaceTimeAveraging( avg_rs::NTuple{3,Int}, avg_rt::Int, u::Array{T,4}, v::Array{T,4}, w::Array{T,4}; th=0.0 )  where {T<:AbstractFloat}
 
     u_avg = zeros( T, size(u) );
     v_avg = zeros( T, size(v) );
@@ -638,14 +638,14 @@ function velocityMap( U::Array{T,3}, V::Array{T,3}, W::Array{T,3} ) where {T<:Ab
 end
 
 # 2D
-function sink( rad::I, pos::II )
+function sink( rad::Int, pos::NTuple{2,Int} )
     return [ [ (pos[1]-y )/sqrt( (pos[1]-y)^2 + (pos[2]-x)^2 ),
                (pos[2]-x )/sqrt( (pos[1]-y)^2 + (pos[2]-x)^2 ) ] for 
             y in pos[1]-rad:pos[1]+rad, x in pos[2]-rad:pos[2]+rad ]
 end
 
 # 3D
-function sink( rad::I, pos::III )
+function sink( rad::Int, pos::NTuple{3,Int} )
     return [ [ (pos[1]-y )/sqrt( (pos[1]-y)^2 + (pos[2]-x)^2 + (pos[3]-z)^2 ),
                (pos[2]-x )/sqrt( (pos[1]-y)^2 + (pos[2]-x)^2 + (pos[3]-z)^2 ),
                (pos[3]-z )/sqrt( (pos[1]-y)^2 + (pos[2]-x)^2 + (pos[3]-z)^2 ) ] for
@@ -674,7 +674,7 @@ function crossCorrelateSink!( u, v, w, sink, corr )
     end # @inbounds
 end
 
-function divergenceMap( r::I, U::Array{T,3}, V::Array{T,3}, W::Array{T,3}
+function divergenceMap( r::Int, U::Array{T,3}, V::Array{T,3}, W::Array{T,3}
                       ) where {T<:AbstractFloat}
 
     interSink = sink( r, (0,0,0) );
