@@ -9,31 +9,46 @@ Pkg.add(url="https://github.com/Marc-3d/multi_quickPIV.git")
 ```
 
 ## Usage example
-The code snippet below shows how to run a PIV analysis with ```multi_quickPIV``` and how to retrieve the U and V compoments of the resulting vector field. NOTE: The input images should be of type `Float64` or `Float32`, preferably `Float64` to avoid precision errors. 
+The code snippet below shows how to run a PIV analysis with ```multi_quickPIV``` and how to retrieve the U and V components of the resulting PIV vector field. NOTE: The input images should be of type `Float64` or `Float32`, preferably `Float64` to avoid precision errors. 
 ```julia
     using multi_quickPIV
 
-    # Creating a "parameter object" with custom values
+    # A) Running PIV between two images with default parameters
+    VF, SN = multi_quickPIV.PIV( img1, img2 )
+
+    # B) Running PIV between two images with custom parameters
+    
+    # B.1) Creating a "parameters object" with custom values
     pivparams = multi_quickPIV.setPIVParameters( interSize=(32,32), searchMargin=(16,16), step=(16,16), threshold=1000 )
     
-    # Running PIV between two images, with custom parameters
+    # B.2) Providing the parameters as the last argument to the PIV function
     VF, SN = multi_quickPIV.PIV( img1, img2, pivparams )
-
-    # Extracting the U and V components from the PIV vectorfield
-    U = VF[ 1, :, : ]; 
-    V = VF[ 2, :, : ]; 
-    # W = VF[ 3, :, : ] # In case of 3D PIV analyses
 ```
 
-This is how the two input images and the PIV vector field look like: 
+```VF``` contains the output vector field, and ```SN``` contains a signal-to-noise measure for each vector of the vector field. ```VF``` is an (N+1)-D array, which stores the U, V and W components of the PIV vector field. This is how to extract the individual components from ```VF```: 
+
+```julia
+    # 2D PIV
+    U = VF[ 1, :, : ]; 
+    V = VF[ 2, :, : ]; 
+
+    # 3D PIV
+    U = VF[ 1, :, :, : ]; 
+    V = VF[ 2, :, :, : ]; 
+    W = VF[ 3, :, :, : ];
+```
+
+Example of a 2D PIV result generated with multi_quickPIV on biological data: 
 
 ![image info](./docs/assets/PIV_example.png)
 
 I always visualize the input images using different colors, so that I can overlay them to visually appreciate the underlying translations of the structures between the images. 
 
+
+
 <details> 
  
-<summary> Loading images code example </summary>
+<summary> Loading images --- code example </summary>
 
 <br>
 
@@ -58,7 +73,7 @@ The code snippet below exemplifies how to extract two images from a 2D+t TIF dat
 
 <details> 
 
-<summary> Visualizing PIV results code example </summary>
+<summary> Visualizing PIV results --- code example </summary>
 
 <br>
 
