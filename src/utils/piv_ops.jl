@@ -303,17 +303,29 @@ function compute_SN( tmp_data, SM::Dims{N}, SR_TLF_off, SR_BRB_off ) where {N}
 
     corr = tmp_data[1]; 
 
+    # cross-correlation at the center of the cross-correlation matrix
+
     cntr = SM .+ 1; 
-    trans_TL = ones(Int64,N) .+ SR_TLF_off
-    trans_F  = (   N == 2  ) ? 1 : 1 + SR_TLF_off[3]
-    trans_BR = ones(Int64,N) .* ( 2 .* SM  ) .-  SR_BRB_off; 
-    trans_B  = (   N == 2  ) ? 1 : 1 + 2 * SM[3] - SR_BRB_off[3]; 
+    mid  = corr[ cntr... ]
+
+    # cross-correlation in the rest of the cross-correlation matrix. 
+
+    # we need to account for the possibility of the search region going of out bounds, 
+    # which is what the code below is doing: extracting the coordinates of the 
+    # fully overlapping translations that do not involve out-of-bound elements in the
+    # search region. 
+
+    trans_TL = ones( Int64, N ) .+ SR_TLF_off
+    trans_F  = ( N == 2  ) ? 1 : 1 + SR_TLF_off[3]
+    trans_BR = ones( Int64, N ) .* ( 2 .* SM  ) .-  SR_BRB_off; 
+    trans_B  = ( N == 2  ) ? 1 : 1 + 2 * SM[3] - SR_BRB_off[3]; 
+
     TLF  = ( trans_TL..., trans_F )
     BRB  = ( trans_BR..., trans_B )
+
     fovp = UnitRange.( TLF, BRB ); 
     len  = prod( length.( fovp ) ); 
-    mid  = corr[ cntr... ]
-    avg  = ( sum( corr[ fovp... ] ) - mid )/(len-1)
+    avg  = ( sum( corr[ fovp... ] ) - mid )/( len - 1 )
 
-    return mid/avg; 
+    return mid / avg; 
 end
