@@ -122,7 +122,7 @@ function PIV_CPU_masked( input1::AbstractArray{<:Real,N},
 			coord_data = get_interrogation_and_search_coordinates( vf_idx, vf_size, size1, scale, pivparams ); 
 
 			# (OPTIONAL) FILTERING OF INTERROGATION REGIONS IF pivparams.filtFun(IR) < pivparams.threshold
-			skip_inter_region( mask, coord_data[1], coord_data[2], pivparams ) && ( continue; )
+			skip_inter_region( input1, mask, coord_data[1], coord_data[2], pivparams ) && ( continue; )
 
 			# COPYING INTERROGATION/SEARCH REGIONS INTO PADDED ARRAYS FOR FFT
 			prepare_inputs!( corr_alg, input1, input2, mask, coord_data, tmp_data );

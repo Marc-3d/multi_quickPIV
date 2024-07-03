@@ -1,13 +1,15 @@
 """
-    COMPUTING VECTOR FIELD SIZE, AKA THE NUMBER OF INTERROGATOIN AREAS THAT FIT IN EACH INPUT 
-    DIMENSION.
+    COMPUTING VECTOR FIELD SIZE, AKA THE NUMBER OF INTERROGATOIN AREAS THAT FIT IN EACH DIMENSION
+    OF THE INPUT.
 """
 
 function get_vectorfield_size( input_size::Dims{N}, pivparams::PIVParameters, scale=1 ) where {N}
-    get_vectorfield_size( input_size, _isize( pivparams, scale ), _step(  pivparams, scale ) )
+
+    return get_vectorfield_size( input_size, _isize( pivparams, scale ), _step(  pivparams, scale ) )
 end
 
 function get_vectorfield_size( input_size::Dims{N}, isize::Dims{N}, step::Dims{N} ) where {N}
+    
     return length.( StepRange.( 1, step, input_size .- isize .+ 1 ) );
 end
 
@@ -122,6 +124,20 @@ function skip_inter_region( input, IR_TLF, IR_BRB, pivparams::PIVParameters )
         inter_view = view( input, UnitRange.( IR_TLF, IR_BRB )... ); 
         return pivparams.filtFun( inter_view ) < pivparams.threshold
     end
+end
+
+function skip_inter_region( input, mask, IR_TLF, IR_BRB, pivparams::PIVParameters )
+
+    skip = false; 
+    if pivparams.threshold > 0
+        inter_view = view( input, UnitRange.( IR_TLF, IR_BRB )... ); 
+        skip = pivparams.filtFun( inter_view ) < pivparams.threshold
+    end
+    if pivparams.mask_threshold > 0
+        mask_view = view( mask, UnitRange.( IR_TLF, IR_BRB )... ); 
+        skip = skip || pivparams.mask_filtFun( mask_view ) < pivparams.mask_threshold
+    end
+    return skip
 end
 
 
