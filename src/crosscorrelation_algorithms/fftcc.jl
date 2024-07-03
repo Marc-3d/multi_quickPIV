@@ -134,8 +134,8 @@ function _FFTCC( F::Array{T,N}, G::Array{T,N};
                                 unpadded=unpadded, 
                                 odd_pad=odd_pad )
 
-  tmp_data[1][Base.OneTo.(size(F))...] .= F
-  tmp_data[2][Base.OneTo.(size(G))...] .= G
+  @inbounds tmp_data[1][Base.OneTo.(size(F))...] .= F
+  @inbounds tmp_data[2][Base.OneTo.(size(G))...] .= G
 
   _FFTCC!( tmp_data... )
 

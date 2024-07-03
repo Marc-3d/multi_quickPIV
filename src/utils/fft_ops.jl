@@ -61,14 +61,17 @@ end
  
 function execute_plan!( p, pad_array::Array{Float64,N} ) where {N}
     @ccall FFTW.FFTW_jll.libfftw3.fftw_execute_dft_r2c(p::FFTW.PlanPtr, pad_array::Ptr{Cdouble}, pad_array::Ptr{ComplexF64})::Cvoid
+    return nothing
 end
 
 function execute_plan!( p, pad_array::Array{Float32,N} ) where {N}
     @ccall FFTW.FFTW_jll.libfftw3f.fftwf_execute_dft_r2c(p::FFTW.PlanPtr, pad_array::Ptr{Cfloat}, pad_array::Ptr{ComplexF32})::Cvoid
+    return nothing
 end
 
 function fftw_destroy_plan(p)
     @ccall FFTW.FFTW_jll.libfftw3.fftw_destroy_plan(p::FFTW.PlanPtr)::Cvoid
+    return nothing
 end
 
 function fftw_cleanup()
@@ -76,6 +79,7 @@ function fftw_cleanup()
     if ( Threads.nthreads() > 1 )
         @ccall  FFTW.FFTW_jll.libfftw3.fftw_cleanup_threads()::Cvoid
     end
+    return nothing
 end
 
 """
@@ -97,6 +101,7 @@ function corr_dot!( pad_G, pad_F )
         pad_G[ idx ] = a*c - b*d
         pad_G[idx+1] = a*d + c*b
     end
+    return nothing
 end
 
 """
