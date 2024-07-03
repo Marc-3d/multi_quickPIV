@@ -18,12 +18,12 @@ include("./postprocessing/postprocessing.jl")
 #include("./convolution_algorithms/fftc.jl")
 
 # STANDARD PIV 
-function PIV( input1, input2, pivparams::PIVParameters; precision=32 )
+function PIV( input1, input2, pivparams::PIVParameters=setPIVParameters(); precision=64 )
 	return PIV_CPU( input1, input2, pivparams, precision  )
 end
 
 # MASKED PIV
-function PIV( input1, input2, mask, pivparams::PIVParameters; precision=32 )
+function PIV( input1, input2, mask, pivparams::PIVParameters=setPIVParameters(); precision=64 )
 	return PIV_CPU_masked( input1, input2, mask, pivparams, precision=precision  )
 end
 
