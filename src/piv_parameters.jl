@@ -4,11 +4,7 @@ struct ZNCC        end
 struct NSQECC      end
 struct mask_NSQECC end
 
-# FFTC was a convolution implementation, which I we don't really use. 
-struct FFTC        end 
-
-
-CORRTYPES = Union{FFTCC, ZNCC, NSQECC, mask_NSQECC,FFTC, ZNC, NSQEC, mask_NSQEC};
+CORRTYPES = Union{FFTCC, ZNCC, NSQECC, mask_NSQECC};
 dimable   = Union{Integer,Dims{2},Dims{3},Any}; 
 toDims3( input::Any     ) = nothing
 toDims3( input::Integer ) = ( input, input, input )
