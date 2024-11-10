@@ -221,3 +221,32 @@ function add_numerator_nsqecc( pad_arr::AbstractArray{T1,3},
     pad_view .+= view( int_arr, T, R, F );
     pad_view .+= view( int_arr, T, L, B );
 end
+
+######
+
+function IR_centers( pivparams::PIVParameters, VF; ROI = [ UnitRange.( 1, x ) for x in size(VF)[2:end] ] )
+
+    IA = _isize( pivparams ); 
+    ST = _step( pivparams ); 
+
+    y_coords = [ ( y - 1 )*ST[1] + div(IA[1],2) for y in ROI[1], x in ROI[2] ]
+    x_coords = [ ( x - 1 )*ST[2] + div(IA[2],2) for y in ROI[1], x in ROI[2] ]
+
+    return y_coords, x_coords
+end
+
+function ROI_quiver( pivparams, VF; ROI=axes(input) )
+
+    # coordinates of each interrogation region
+    y_coords, x_coords = IR_centers( pivparams, VF ); 
+
+    # picking coordinates that are within ROI[1+]
+    y_mask = [ ROI[1].start <= y <= ROI[1].stop for y in y_coords ]
+    x_mask = [ ROI[2].start <= x <= ROI[2].stop for x in x_coords ]
+    mask   = y_mask .* x_mask
+
+    U = VF[1, :, : ]
+    V = VF[2, :, : ]
+
+    return y_coords[ mask ] .- ROI[1].start, x_coords[ mask ] .- ROI[2].start, U[ mask ], V[ mask ]
+end

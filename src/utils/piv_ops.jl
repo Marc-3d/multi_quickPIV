@@ -35,8 +35,6 @@ end
 """
     FINDING THE TLF (TOP-LEFT-FRONT) AND BRB (BOTTOM-RIGTH-BACK) COORDINATES OF THE "i"th
     INTERROGATION REGION. 
-
-    SOMETIMES, I WILL REPLACE BRB ---> DRB (DOWN-RIGHT-BACK), TO AVOID REPEATING LETTERS...
 """
 function get_interrogation_coordinates( vf_idx::Int, vf_size::Dims{N}, input_size::Dims{N}, scale, pivparams::PIVParameters ) where {N}
 
@@ -53,8 +51,6 @@ end
     INTERROGATION REGION. IN ADDITION, SEARCH COORDINATES MIGHT GO OUT-OF-BOUNDS OF THE 
     INPUT ARRAYS. THE OUT-OF-BOUND EXTENDS NEED TO BE CONSIDERED WHEN COPYING THE SEARCH
     REGION INTO THE PADDED ARRAY AND WHEN FINDING THE MAXIMUM PEAK. 
-
-    SOMETIMES, I WILL REPLACE BRB ---> DRB (DOWN-RIGHT-BACK), TO AVOID REPEATING LETTERS...
 """
 function get_search_coordinates( vf_idx::Int, vf_size::Dims{N}, input_size::Dims{N}, scale, pivparams::PIVParameters ) where {N}
 

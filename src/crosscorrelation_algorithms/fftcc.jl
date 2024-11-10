@@ -144,10 +144,69 @@ function _FFTCC( F::Array{T,N}, G::Array{T,N};
     Base.circshift!(  view( tmp_data[2], UnitRange.( 1, size(tmp_data[1]) .- r2c_pad )... ),
                       view( tmp_data[1], UnitRange.( 1, size(tmp_data[1]) .- r2c_pad )... ),
                       size(F) .- 1 ); 
-    tmp_data[1] .= tmp_data[2]   
+    tmp_data[1] .= tmp_data[2];
   end
 
   destroy_fftw_plans( FFTCC(), tmp_data )
 
   return tmp_data[1], tmp_data[2]
+end
+
+
+
+"""
+  This function performs FFT cross-correlation and returns a matrix with the same size as G, corresponding to the 
+  translations where F is centered around the pixels of G. This corresponds to scipy's mode="valid" in 
+  scipy.signal.convolve2d(...).
+"""
+function FFTCC_crop( F::AbstractArray{T,N}, G::AbstractArray{T,N} ) where {T<:Real,N}
+    
+  isize = size( F ); 
+  ssize = size( G ); 
+  prec  = sizeof( T ) * 8; 
+  tmp_data = multi_quickPIV.allocate_tmp_data( multi_quickPIV.FFTCC(), isize, ssize, precision=prec, unpadded=false, good_pad=true ); 
+  
+  tmp_data[1] .= 0.0
+  tmp_data[2] .= 0.0
+  tmp_data[1][UnitRange.(1,isize)...] .= F; 
+  tmp_data[2][UnitRange.(1,ssize)...] .= G;
+
+  multi_quickPIV._FFTCC!( tmp_data... )
+
+  r2c_pad = size(tmp_data[1]) .- tmp_data[end]; 
+  Base.circshift!(  view( tmp_data[2], UnitRange.( 1, size(tmp_data[1]) .- r2c_pad )... ),
+                    view( tmp_data[1], UnitRange.( 1, size(tmp_data[1]) .- r2c_pad )... ),
+                    div.( isize, 2 ) ); 
+  
+  multi_quickPIV.destroy_fftw_plans( multi_quickPIV.FFTCC(), tmp_data )
+  
+  return tmp_data[2][ UnitRange.( 1, ssize )... ]
+end
+
+function FFTCC_crop!( out::AbstractArray{T,N}, F::AbstractArray{T,N}, G::AbstractArray{T,N} ) where {T<:Real,N}
+
+  @assert size(out) == size(G);
+    
+  isize = size( F ); 
+  ssize = size( G ); 
+  prec  = sizeof( T ) * 8; 
+  tmp_data = multi_quickPIV.allocate_tmp_data( multi_quickPIV.FFTCC(), isize, ssize, precision=prec, unpadded=false, good_pad=true ); 
+  
+  tmp_data[1] .= 0.0
+  tmp_data[2] .= 0.0
+  tmp_data[1][UnitRange.(1,isize)...] .= F; 
+  tmp_data[2][UnitRange.(1,ssize)...] .= G;
+
+  multi_quickPIV._FFTCC!( tmp_data... )
+
+  r2c_pad = size(tmp_data[1]) .- tmp_data[end]; 
+  Base.circshift!(  view( tmp_data[2], UnitRange.( 1, size(tmp_data[1]) .- r2c_pad )... ),
+                    view( tmp_data[1], UnitRange.( 1, size(tmp_data[1]) .- r2c_pad )... ),
+                    div.( isize, 2 ) ); 
+  
+  multi_quickPIV.destroy_fftw_plans( multi_quickPIV.FFTCC(), tmp_data )
+
+  out .= tmp_data[2][ UnitRange.( 1, ssize )... ]
+  
+  return nothing
 end
