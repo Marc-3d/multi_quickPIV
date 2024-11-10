@@ -4,19 +4,7 @@ struct ZNCC        end
 struct NSQECC      end
 struct mask_NSQECC end
 
-<<<<<<< HEAD
-# convolution (C) can replace cross-correlation if we mirror the first input.
-struct FFTC       end 
-struct ZNC        end
-struct NSQEC      end
-struct mask_NSQEC end
-
-
-CONVTYPES = Union{FFTC, ZNC, NSQEC, mask_NSQEC}
-CORRTYPES = Union{FFTCC, ZNCC, NSQECC, mask_NSQECC,FFTC, ZNC, NSQEC, mask_NSQEC};
-=======
 CORRTYPES = Union{FFTCC, ZNCC, NSQECC, mask_NSQECC};
->>>>>>> 7ddcef4ef85eeb6fa39efe3e6e099db7c21872b9
 dimable   = Union{Integer,Dims{2},Dims{3},Any}; 
 toDims3( input::Any     ) = nothing
 toDims3( input::Integer ) = ( input, input, input )
