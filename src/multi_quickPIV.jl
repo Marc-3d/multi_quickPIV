@@ -4,8 +4,8 @@ module multi_quickPIV
 # OR README in the ./crosscorrelation_algorithms. 
 # TODO: record and upload video
 
-include("./utils/common_ops.jl")	
 include("piv_parameters.jl")
+include("./utils/common_ops.jl")	
 include("./utils/piv_ops.jl")
 include("./utils/fft_ops.jl")
 include("./utils/nsqecc_ops.jl")
@@ -35,9 +35,6 @@ end
 	transfroms. For instance, to launch a julia REPL with 4 threads run: "julia -t 4". If you want 
 	to run multithreaded quickPIV from a jupyter notebook, follow the instructions in this github 
 	issue: https://github.com/JuliaLang/IJulia.jl/issues/882#issuecomment-579520246 
-
-	NOTE: 
-		FFTW.fftw_init_threads() is called within FFTW.__init__(), so we don't need to do it.
 """
 function PIV_CPU( input1::AbstractArray{<:Real,N}, 
 	              input2::AbstractArray{<:Real,N}, 
@@ -185,7 +182,6 @@ function PIV_CPUGPU( input1, input2, pivparams; precision=32 )
 	end
 
 end
-
 
 include("./additional_analyses/utils_patch_matching_across_stacks.jl")
 include("./additional_analyses/patch_matching_across_stack.jl")

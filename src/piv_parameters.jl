@@ -4,6 +4,14 @@ struct ZNCC        end
 struct NSQECC      end
 struct mask_NSQECC end
 
+# convolution (C) can replace cross-correlation if we mirror the first input.
+struct FFTC       end 
+struct ZNC        end
+struct NSQEC      end
+struct mask_NSQEC end
+
+
+CONVTYPES = Union{FFTC, ZNC, NSQEC, mask_NSQEC}
 CORRTYPES = Union{FFTCC, ZNCC, NSQECC, mask_NSQECC,FFTC, ZNC, NSQEC, mask_NSQEC};
 dimable   = Union{Integer,Dims{2},Dims{3},Any}; 
 toDims3( input::Any     ) = nothing
@@ -13,8 +21,8 @@ toDims3( input::Dims{3} ) = input
 
 function parseCorr( corr::String )
     if     lowercase(corr) == "zncc";     return   ZNCC();
-	elseif lowercase(corr) == "fft";      return  FFTCC();
-	elseif lowercase(corr) == "nsqecc";   return NSQECC();
+	  elseif lowercase(corr) == "fft";      return  FFTCC();
+	  elseif lowercase(corr) == "nsqecc";   return NSQECC();
     elseif lowercase(corr) == "znc";      return    ZNC();
     elseif lowercase(corr) == "fftc";     return   FFTC();
     elseif lowercase(corr) == "nsqec";    return  NSQEC();
