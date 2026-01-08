@@ -304,7 +304,7 @@ function gaussian_3D( up::T, down::T, left::T, right::T, front::T, back::T, mx::
 end
 
 """
-    Some signal to NOISE implementation
+    Signal to noise ratio
 """
 
 # autocorr
@@ -337,7 +337,9 @@ function compute_SN( tmp_data, SM::Dims{N}, SR_TLF_off, SR_BRB_off ) where {N}
 
     fovp = UnitRange.( TLF, BRB ); 
     len  = prod( length.( fovp ) ); 
-    avg  = ( sum( corr[ fovp... ] ) - mid )/( len - 1 )
+    
+    max  = maximum( corr[ fovp... ] )
+    avg  = ( sum( corr[ fovp... ] ) - max )/( len - 1 )
 
-    return mid / avg; 
+    return max / avg; 
 end

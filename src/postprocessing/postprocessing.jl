@@ -1,904 +1,1122 @@
 using Statistics 
 
-#=
-    Replacement functions accept a coordinate and a radius argument ( a part from the vector
-    field components ). zeroRepalce does not use the coordinate or radius, but mean and median
-    require them.
-=#
+begin ########################################################### UTILS 
 
-function zeroReplace( coords::NTuple{N,Int}, radius::Int, arrays::Array{T,N}... ) where {T,N}
-    return zeros( T, length(arrays) );
-end
+    begin #####################
 
-function medianReplace( coords::NTuple{N,Int}, radius::Int, arrays::Array{T,N}... ) where {T,N}
-    mincoords = max.( 1, coords .- radius );
-    maxcoords = min.( size(arrays[1]), coords .+ radius );
-    medians   = zeros( T, length( arrays ) );
-    for c in 1:length( arrays )
-        medians[ c ] = Statistics.median( arrays[c][ UnitRange.( mincoords, maxcoords )... ] );
-    end
-    return medians
-end
+        """ vfsize( VF ) """
+        vfsize( inp::AbstractArray ) = Tuple( size( inp )[2:end] )
 
-function meanReplace( coords::NTuple{N,Int}, radius::Int, arrays::Array{T,N}... ) where {T,N}
-    mincoords = max.( 1, coords .- radius );
-    maxcoords = min.( size(arrays[1]), coords .+ radius );
-    means     = zeros( T, length( arrays ) );
-    for c in 1:length( arrays )
-        means[ c ] = Statistics.mean( arrays[c][ UnitRange.( mincoords, maxcoords )... ] );
-    end
-    return means
-end
+        """ vfsize( (U,V,W) ) """
+        # NOTE: This might be good to add '@assert all( size.(inp) .== (size(inp[1]),) )'
+        vfsize( inp::AbstractArray... ) = size( inp[1] )
 
-#=
-    Computes and array of magnitudes for 2D or 3D vector fields. Each component of the vectors 
-    field is provided in a separate array:
+        """ num_components( VF ) """
+        num_components( inp::AbstractArray ) = size( inp, 1 )
 
-        magnitudemap( U, V ) or magnitudemap( U, V, W )
-=#
+        """ num_components( (U, V, W) ) """
+        num_components( inp::AbstractArray... ) = length( N )
 
-function magnitudemap( arrays::Array{T,N}... ; typ=Float32 ) where {T,N}
-    magnitudes = zeros( typ, size( arrays[1] ) )
-    magnitudemap!( magnitudes, arrays... )
-    return magnitudes
-end
-
-function magnitudemap!( magnitudes::Array{U,N}, arrays::Array{T,N}... ) where {T,U,N}
-    numcomponents = length( arrays );
-    @inbounds for e in 1:length( arrays[1] )
-        sum2 = 0.0;
-        @simd for c in 1:numcomponents
-            sum2 += arrays[c][e]*arrays[c][e]
-        end
-        magnitudes[e] = convert( U, sqrt( sum2 ) )
-    end
-end
-
-
-#=
-    Computes a boolean mask, where vectors whose magnitude is > n * std are set to
-    true. Each component of the vectors field is provided in a separate array.
-=#
-
-function stdmask( n, arrays::Array{T,N}... ) where {T,N}
-    mask = zeros( Bool, size( arrays[1] ) )
-    stdmask!( n, mask, arrays... );
-    return mask
-end
-
-function stdmask!( n, mask::Array{Bool,N}, arrays::Array{T,N}... ) where {T,N}
-    magnitudes = magnitudemap( arrays... );
-    mean = Statistics.mean( magnitudes );
-    std  = Statistics.std( magnitudes, mean=mean ) ;
-    @simd for e in 1:length( magnitudes )
-        @inbounds mask[ e ] = abs( magnitudes[e] - mean ) > n*std
-    end
-end
-
-
-"""
-    Replaces vectors whose SN is < th * std. The replacement function can be
-    specified, as well as the radius of the neighbouring vectors that are used to
-    compute median and mean vectors.
-
-    Implemented replacement functions are.
-        PIV3D.zeroReplace ----> replaces outlier vectors by a vector of zeros
-        PIV3D.medianReplace --> replaces outlider vector by the median vector
-        PIV3D.meanReplace ----> replaces outlier vectors by the mean vector
-"""
-function SNFilter( SN::Array{<:Real,N}, th, arrays::Array{T,N}...;  replace::Function=zeroReplace, radius=0 ) where {T,N}
-
-    filtered = [ copy( arrays[idx] ) for idx in 1:length(arrays) ];
-    mask     = Bool.( SN .< th );
-    coords   = CartesianIndices( mask );
-
-    for e in 1:length(mask)
-        if mask[e]
-            replacement = replace( Tuple(coords[e]), radius, arrays... )
-            for c in 1:length(arrays)
-                filtered[c][e] = replacement[c]
+        """ apply_each_dimension( op, ROI, VF ) """
+        function apply_each_dimension( op, ROI, inp::AbstractArray )
+            n_dims = num_components( inp ); 
+            output = zeros( eltype(inp), n_dims )
+            for c in 1:n_dims
+                output[c] = op( inp[ c, ROI... ] )
             end
+            return output
+        end
+
+        """ apply_each_dimension( op, ROI, (U,V,W) ) """
+        function apply_each_dimension( op, ROI, inp::AbstractArray... )
+            n_dims = num_components( inp ); 
+            output = zeros( eltype(inp[1]), n_dims )
+            for c in 1:n_dims
+                output[c] = op( inp[c][ ROI... ] )
+            end
+            return output
         end
     end
 
-    return filtered
-end
+    """
+        Most post-processing functions require computing some quantity for all vector field components 
+        within a certain square region around each position of the vector field. This function can be
+        used for exactly that. It is flexible enough to deal with vector fields provided as individual 
+        arrays ( U, V or U, V, W ), as well as vector fields combined into one array, which is the  
+        format that quickPIV.PIV( ... ) returns.
 
-"""
-    Replaces vectors whose magnitude is > n * std. The replacement function can be
-    specified, as well as the radius of the neighbouring vectors that are used to
-    compute median and mean vectors.
+        Example of computing the average vector withim a radius of (4,4) around coordinate (10,5): 
 
-    Implemented replacement functions are.
-        PIV3D.zeroReplace ----> replaces outlier vectors by a vector of zeros
-        PIV3D.medianReplace --> replaces outlider vector by the median vector
-        PIV3D.meanReplace ----> replaces outlier vectors by the mean vector
-"""
-function stdFilter( n, arrays::Array{T,N}...; replace::Function=zeroReplace, radius=0 ) where {T,N}
+            avg_vec_2D = localOp( (10,5), (4,4), U, V, op=(x)->(Statistics.mean(x)) )
+            avg_vec_2D = localOp( (10,5), (4,4), VF, op=(x)->(Statistics.mean(x)) )
 
-    filtered = [ copy( arrays[idx] ) for idx in 1:length(arrays) ];
+            avg_vec_3D = localOp( (10,5,10), (4,4,4), U, V, W, op=(x)->(Statistics.mean(x)) )
+            avg_vec_3D = localOp( (10,5,10), (4,4,4), VF, op=(x)->(Statistics.mean(x)) )
+    """
+    function localOp( 
+        coords::NTuple{N,Int}, 
+        radius::dimable, 
+        vectorfield::AbstractArray...; 
+        op=(x)->(Statistics.mean(x)) 
+    ) where {N}
 
-    if ( n > 0 )
-        mask   = stdmask( n, arrays... );
-        coords = CartesianIndices( mask );
-
-        for e in 1:length(mask)
-            if mask[e]
-                replacement = replace( Tuple(coords[e]), radius, arrays... )
-                for c in 1:length(arrays)
-                    filtered[c][e] = replacement[c]
-                end
-            end
-        end
+        vf_dims   = num_components( vectorfield )
+        vf_size   = vfsize( vectorfield )
+        radii     = toDims3( radius )[1:N]
+        mincoords = max.(    1   , coords .- radii );
+        maxcoords = min.( vf_size, coords .+ radii );
+        ROI       = UnitRange.( mincoords, maxcoords ); 
+        result    = apply_each_dimension( op, ROI, vectorfield )
+        return result
     end
 
-    return filtered
-end
-
-"""
-    Replaces vectors whose magnitude is > n * std. The replacement function can be
-    specified, as well as the radius of the neighbouring vectors that are used to
-    compute median and mean vectors.
-
-    Implemented replacement functions are.
-        PIV3D.zeroReplace ----> replaces outlier vectors by a vector of zeros
-        PIV3D.medianReplace --> replaces outlider vector by the median vector
-        PIV3D.meanReplace ----> replaces outlier vectors by the mean vector
-"""
-function magnitudeFilter( threshold, arrays::Array{T,N}...  ) where {T<:AbstractFloat,N}
-    return magnitudeFilter( >, threshold, arrays... )
-end
-
-function magnitudeFilter( f, threshold, arrays::Array{T,N}...;
-                          replace::Function=zeroReplace, radius=0 ) where {T,N}
-
-    magnitudes = magnitudemap( arrays... );
-    coords     = CartesianIndices( magnitudes );
-    filtered   = [ copy( arrays[idx] ) for idx in 1:length(arrays) ];
-
-    for e in 1:length(magnitudes)
-        if f( magnitudes[e], threshold )
-            replacement = replace( Tuple(coords[e]), radius, arrays... )
-            for c in 1:length(arrays)
-                filtered[c][e] = replacement[c]
-            end
+    function localOp( coords::NTuple{N,Int}, radius::dimable, arrays::Array{T,N}...; op=(x)->(Statistics.mean(x)) ) where {T,N}
+        radii     = toDims3( radius )[1:N]
+        mincoords = max.( 1, coords .- radii );
+        maxcoords = min.( size(arrays[1]), coords .+ radii );
+        result    = zeros( T, length( arrays ) );
+        for c in 1:length( arrays )
+            result[ c ] = op( arrays[c][ UnitRange.( mincoords, maxcoords )... ] );
         end
-    end
-    return filtered
-end
-
-
-""" Spatial averaging for 2D vector fields"""
-
-function spaceAveraging( avg_radius::Int, arrays::Array{T,N}...; th=0.1 ) where {T,N}
-    return spaceAveraging( Tuple( ones( Int, N ) ) .* avg_radius, arrays... ); 
-end
-
-function spaceAveraging( avg_radius::NTuple{2,Int}, u::Array{T,2}, v::Array{T,2}; 
-                         th=0.1 ) where {T<:AbstractFloat}
-
-    u_avg = zeros( T, size(u) );
-    v_avg = zeros( T, size(v) );
-    h, w  = size( u )
-
-    for col in 1:w
-        cmin = max( 1, col-avg_radius[2] );
-        cmax = min( w, col+avg_radius[2] );
-
-        for row in 1:h
-
-            mag = sqrt( u[ row, col ]^2 + v[ row, col ]^2 );
-            if mag < th
-                continue
-            end
-
-            rmin = max( 1, row-avg_radius[1] );
-            rmax = min( h, row+avg_radius[1] );
-            N = length(cmin:cmax)*length(rmin:rmax);
-
-            mean_u = 0.0;
-            mean_v = 0.0;
-            @inbounds for x in cmin:cmax
-                @simd for y in rmin:rmax
-                    mean_u += u[y,x]
-                    mean_v += v[y,x]
-                end
-            end
-
-            u_avg[ row, col ] = mean_u/N;
-            v_avg[ row, col ] = mean_v/N;
-        end
-    end
-    return u_avg, v_avg
-end
-
-""" Spatial averaging for 3D vector fields"""
-function spaceAveraging( avg_radius::NTuple{3,Int}, U::Array{T,3}, V::Array{T,3}, W::Array{T,3} ) where {T<:AbstractFloat}
-
-    u_avg   = zeros( T, size(U) );
-    v_avg   = zeros( T, size(V) );
-    w_avg   = zeros( T, size(W) );
-    h, w, d = size( U )
-
-    for zet in 1:d
-        zmin = max( 1, zet-avg_radius[3] );
-        zmax = min( d, zet+avg_radius[3] );
-
-        for col in 1:w
-            cmin = max( 1, col-avg_radius[2] );
-            cmax = min( w, col+avg_radius[2] );
-
-            for row in 1:h
-
-                mag = sqrt( U[row,col,zet]^2 + V[row,col,zet]^2 + W[row,col,zet]^2 )
-                if mag == 0
-                    continue
-                end
-
-                rmin = max( 1, row-avg_radius[1] );
-                rmax = min( h, row+avg_radius[1] );
-                N = length(rmin:rmax)*length(cmin:cmax)*length(zmin:zmax);
-
-                mean_u = 0.0;
-                mean_v = 0.0;
-                mean_w = 0.0;
-
-                # Looping over neighbours
-                for z in zmin:zmax
-                    for x in cmin:cmax
-                        for y in rmin:rmax
-                            mean_u += U[y,x,z]
-                            mean_v += V[y,x,z]
-                            mean_w += W[y,x,z]
-                        end
-                    end
-                end
-
-                u_avg[ row, col, zet ] = mean_u/N;
-                v_avg[ row, col, zet ] = mean_v/N;
-                w_avg[ row, col, zet ] = mean_w/N;
-            end
-        end
+        return result
     end
 
-    return u_avg, v_avg, w_avg
-end
-
-""" space-time averaging """ 
-function spaceTimeAveraging( avg_rs::Int, avg_rt::Int, u::Array{T,3}, v::Array{T,3}; th=0.0 )  where {T<:AbstractFloat}
-    return spaceTimeAveraging( Tuple( ones( Int, 2 ) ) .* avg_rs, avg_rt, u, v; th=th )
-end
-
-function spaceTimeAveraging( avg_rs::NTuple{2,Int}, avg_rt::Int, u::Array{T,3}, v::Array{T,3}; th=0.0 )  where {T<:AbstractFloat}
-
-    u_avg = zeros( T, size(u) );
-    v_avg = zeros( T, size(v) );
-
-    h, w, time = size( u )
-
-    for t in 1:time
-        tmin = max(   1 , t - avg_rt );
-        tmax = min( time, t + avg_rt );
-
-        for c in 1:w
-            cmin = max( 1, c - avg_rs[2] );
-            cmax = min( w, c + avg_rs[2] );
-
-            for r in 1:h
-
-                magnitude = sqrt( u[r,c,t]^2 + v[r,c,t]^2 )
-                if  magnitude < th
-                    continue
-                end
-
-                rmin = max( 1, r - avg_rs[1] );
-                rmax = min( h, r + avg_rs[1] );
-                N    = length(tmin:tmax) + length(rmin:rmax)*length(cmin:cmax) - 1
-
-                # central vector is counted twice, so we account for it by substracting it once
-                mean_u = -u[r,c,t];
-                mean_v = -v[r,c,t];
-
-                # spatial averaging
-                for x in cmin:cmax
-                    for y in rmin:rmax
-                        mean_u += u[y,x,t]
-                        mean_v += v[y,x,t]
-                    end
-                end
-
-                # temporal averaging
-                for tp in tmin:tmax
-                    mean_u += u[r,c,tp]
-                    mean_v += v[r,c,tp]
-                end
-
-                u_avg[r,c,t] = mean_u/N;
-                v_avg[r,c,t] = mean_v/N;
-            end
+    function localOp( coords::NTuple{N1,Int}, radius::dimable, VF::Array{T,N2}; op=(x)->(Statistics.mean(x)) ) where {T,N1,N2}
+        radii     = toDims3( radius )[1:N1]
+        mincoords = max.( 1, coords .- radii );
+        maxcoords = min.( size(VF)[2:end], coords .+ radii );
+        result    = zeros( T, size(VF,1) );
+        for c in 1:size(VF,1)
+            result[ c ] = op( VF[ c, UnitRange.( mincoords, maxcoords )... ] );
         end
+        return result
     end
 
-    return u_avg, v_avg
-end
-
-""" space-time averaging """ 
-
-function spaceTimeAveraging( avg_rs::Int, avg_rt::Int, u::Array{T,4}, v::Array{T,4}, w::Array{T,4}; th=0.0 )  where {T<:AbstractFloat}
-    return spaceTimeAveraging( Tuple( ones( Int, 3 ) ) .* avg_rs, avg_rt, u, v, w, th=th ); 
-end
-
-function spaceTimeAveraging( avg_rs::NTuple{3,Int}, avg_rt::Int, u::Array{T,4}, v::Array{T,4}, w::Array{T,4}; th=0.0 )  where {T<:AbstractFloat}
-
-    u_avg = zeros( T, size(u) );
-    v_avg = zeros( T, size(v) );
-    w_avg = zeros( T, size(w) );
-
-    h, w, d, time = size( u )
-
-    for t in 1:time
-        tmin = max(   1 , t - avg_rt );
-        tmax = min( time, t + avg_rt );
-
-        for s in 1:d
-            smin = max( 1, s - avg_rs[3] );
-            smax = min( d, s + avg_rs[3] );
-
-            for c in 1:w
-                cmin = max( 1, c - avg_rs[2] );
-                cmax = min( w, c + avg_rs[2] );
-
-                for r in 1:h
-
-                    magnitude = sqrt( u[r,c,s,t]^2 + v[r,c,s,t]^2 + w[r,c,s,t]^2 )
-                    if  magnitude < th
-                        continue
-                    end
-
-                    rmin = max( 1, r - avg_rs[1] );
-                    rmax = min( h, r + avg_rs[1] );
-                    N = length(tmin:tmax) + length(smin:smax)*length(cmin:cmax)*length(rmin:rmax)
-
-                    # central vector is counted twice, so we account for it by substracting it once
-                    mean_u = -u[ r, c, s, t ];
-                    mean_v = -v[ r, c, s, t ];
-                    mean_w = -w[ r, c, s, t ];
-
-                    # spatial averaging, t is constant
-                    for z in smin:smax
-                        for x in cmin:cmax
-                            for y in rmin:rmax
-                                mean_u += u[y,x,z,t]
-                                mean_v += v[y,x,z,t]
-                                mean_w += w[y,x,z,t]
-                            end
-                        end
-                    end
-
-                    # temporal averaging, (r,c,s) are constant
-                    for tp in tmin:tmax
-                        mean_u += u[r,c,s,tp]
-                        mean_v += v[r,c,s,tp]
-                        mean_w += w[r,c,s,tp]
-                    end
-
-                    u_avg[ r,c,s,t ] = mean_u/N;
-                    v_avg[ r,c,s,t ] = mean_v/N;
-                    w_avg[ r,c,s,t ] = mean_w/N;
-                end
-            end
-        end
+    function localOp( coords::NTuple{N,Int}, radius::dimable, data::Array{T,N}; op=(x)->(Statistics.mean(x)) ) where {T,N}
+        radii     = toDims3( radius )[1:N]
+        mincoords = max.( 1, coords .- radii );
+        maxcoords = min.( size(data), coords .+ radii );
+        result    = op( data[ UnitRange.( mincoords, maxcoords )... ] );
+        return result
     end
 
-    return u_avg, v_avg, w_avg
-end
-
-function similarityAveraging( avg_radius::Int, arrays::Array{T,N}...; st=0.0 ) where {T<:AbstractFloat,N}
-    return similarityAveraging( Tuple( ones( Int, N ) ) .* avg_radius, arrays..., st=st )
-end
-
-""" Spatial averaging + similarity thresholding combo """
-function similarityAveraging( avg_radius::NTuple{2,Int}, U::Array{T,2}, V::Array{T,2}; st=0.0 ) where {T<:AbstractFloat}
-
-    u_avg = zeros( T, size(U) );
-    v_avg = zeros( T, size(V) );
-    h, w  = size( U )
-
-    for col in 1:w
-        cmin = max( 1, col-avg_radius[2] );
-        cmax = min( w, col+avg_radius[2] );
-
-        for row in 1:h
-
-            u1 = U[row,col]
-            v1 = V[row,col]
-            mag = sqrt( u1*u1 + v1*v1 )
-            if mag == 0
-                continue
-            end
-
-            nu1 = U[row,col]/mag
-            nv1 = V[row,col]/mag
-
-            rmin = max( 1, row-avg_radius[1] );
-            rmax = min( h, row+avg_radius[1] );
-
-            len  = length(rmin:rmax)*length(cmin:cmax);
-
-            # variables to hold the averaged vector component
-            mean_u = 0.0;
-            mean_v = 0.0;
-
-            # counter of similar neighbouring vectors
-            n  = 0;
-
-            for x in cmin:cmax
-                for y in rmin:rmax
-
-                    mag2 = sqrt( U[y,x]^2 + V[y,x]^2 )
-                    nu2  = U[y,x]/mag2
-                    nv2  = V[y,x]/mag2
-                    dot  = nu1*nu2 + nv1*nv2
-
-                    if dot > st
-                        mean_u += U[y,x]
-                        mean_v += V[y,x]
-                        n += 1;
-                    end
-                end
-            end
-
-            sim  = (n/len)^2;
-            mmag = sqrt( mean_u*mean_u + mean_v*mean_v );
-
-            u_avg[ row, col ] = mean_u/mmag * sim;
-            v_avg[ row, col ] = mean_v/mmag * sim;
+    function apply_mask!( mask::Array{T1,N}, arrays::Array{T2,N}... ) where {T1,T2,N}
+        for c in 1:length(arrays)
+            arrays[c] .*= mask
         end
+        return nothing
     end
 
-    return u_avg, v_avg
+    function apply_mask!( mask::Array{T1,N1}, VF::Array{T2,N2} ) where {T1,T2,N1,N2}
+        for c in 1:size(VF,1)
+            VF[c, UnitRange.(1,size(mask))...] .*= mask
+        end
+        return nothing
+    end
 end
 
-function similarityAveraging( avg_radius::NTuple{3,Int}, U::Array{T,3}, V::Array{T,3}, W::Array{T,3}; st=0.0 ) where {T<:AbstractFloat}
+begin ########################################################### COMPUTING MAGNITUDES
 
-    u_avg   = zeros( T, size(U) );
-    v_avg   = zeros( T, size(V) );
-    w_avg   = zeros( T, size(W) );
-    h, w, d = size( U )
+    """
+        Computes the "velocity", "speed" or "magnitude" of each vector, where 
+        each component is stored in a separate array. You can use any of the 
+        three terms, whichever you prefer: 
+        
+            M = magnitudes( U, V ); # 2D
+            M = magnitudes( U, V, W ); # 3D
 
-    for zet in 1:d
-        zmin = max( 1, zet-avg_radius[3] );
-        zmax = min( d, zet+avg_radius[3] );
+            M = speeds( U, V ); # 2D
+            M = speeds( U, V, W ); # 3D
 
-        for col in 1:w
-            cmin = max( 1, col-avg_radius[2] );
-            cmax = min( w, col+avg_radius[2] );
+            M = velocities( U, V ); # 2D
+            M = velocities( U, V, W ); # 3D
+    """
 
-            for row in 1:h
+    speeds( arrays::Array{T,N}...; typ=T ) where {T,N} = magnitudes( arrays..., typ=typ )
 
-                u1 = U[row,col,zet]
-                v1 = V[row,col,zet]
-                w1 = W[row,col,zet]
-                mag = sqrt( u1*u1 + v1*v1 + w1*w1 )
-                if mag == 0
-                    continue
-                end
+    velocities( arrays::Array{T,N}...; typ=T ) where {T,N} = magnitudes( arrays..., typ=typ )
 
-                nu1 = U[row,col,zet]/mag
-                nv1 = V[row,col,zet]/mag
-                nw1 = W[row,col,zet]/mag
+    function magnitudes( arrays::Array{T,N}...; typ=T ) where {T,N}
 
-                rmin = max( 1, row-avg_radius[1] );
-                rmax = min( h, row+avg_radius[1] );
-
-                len  = length(rmin:rmax)*length(cmin:cmax)*length(zmin:zmax);
-
-                # variables to hold the averaged vector component
-                mean_u = 0.0;
-                mean_v = 0.0;
-                mean_w = 0.0;
-
-                # counter of similar neighbouring vectors
-                n  = 0;
-
-                for z in zmin:zmax
-                    for x in cmin:cmax
-                        for y in rmin:rmax
-
-                            mag2 = sqrt( U[y,x,z]^2 + V[y,x,z]^2 + W[y,x,z]^2 )
-                            nu2  = U[y,x,z]/mag2
-                            nv2  = V[y,x,z]/mag2
-                            nw2  = W[y,x,z]/mag2
-                            dot  = nu1*nu2 + nv1*nv2 + nw1*nw2
-
-                            if dot > st
-                                mean_u += U[y,x,z]
-                                mean_v += V[y,x,z]
-                                mean_w += W[y,x,z]
-                                n += 1;
-                            end
-                        end
-                    end
-                end
-
-                sim  = (n/len)^2;
-                mmag = sqrt( mean_u*mean_u + mean_v*mean_v + mean_w*mean_w );
-
-                u_avg[ row, col, zet ] = mean_u/mmag * sim;
-                v_avg[ row, col, zet ] = mean_v/mmag * sim;
-                w_avg[ row, col, zet ] = mean_w/mmag * sim;
-            end
-        end
+        magnitudes = zeros( typ, size( arrays[1] ) )
+        magnitudes!( magnitudes, arrays... )
+        return magnitudes
     end
 
-    return u_avg, v_avg, w_avg
+    function magnitudes!( out::Array{T1,N}, arrays::Array{T2,N}... ) where {T1,T2,N}
+
+        @assert size(out) == size(arrays[1])
+        numcomponents = length( arrays );
+        @assert 1 < numcomponents < 4
+
+        @inbounds for e in 1:length( arrays[1] )
+            sum2 = 0.0;
+            @simd for c in 1:numcomponents
+                sum2 += arrays[c][e]^2
+            end
+            out[e] = convert( T1, sqrt( sum2 ) )
+        end
+
+        return nothing
+    end
+
+    """
+        Computes the "velocity", "speed" or "magnitude" of each vector, where 
+        all component is combined in a single array. This is how quickPIV returns
+        the PIV vector fields. Again, you can use any of the three terms, whichever
+        you prefer: 
+        
+            M = magnitudes( VF ); 
+            M = speeds( VF ); 
+            M = velocities( VF );
+    """
+
+    speeds( VF::Array{T,N}; typ=T ) where {T,N} = magnitudes( VF, typ=typ ); 
+
+    velocities( VF::Array{T,N}; typ=T ) where {T,N} = magnitudes( VF, typ=typ ); 
+
+    function magnitudes( VF::Array{T,N}; typ=T ) where {T,N}
+        @assert 1 < size( VF,1 ) < 4
+        magnitudes = zeros( typ, size(VF)[2:end]... )
+        magnitudes!( magnitudes, VF )
+        return magnitudes
+    end
+
+    function magnitudes!( magnitudes::Array{T1,N1}, VF::Array{T2,N2} ) where {T1,T2,N1,N2}
+
+        @assert N2 == N1 + 1 
+        @assert 1 < size( VF,1 ) < 4
+
+        for index in CartesianIndices( magnitudes )
+            magnitudes[ index ] = sqrt( sum( VF[ :, index ] .^ 2 ) )
+        end
+        return nothing
+    end
+
+    # TODO: implement for U, V, W...
+    """
+        It is usually desired to remove vectors which are abnormally large compared to the vectors
+        around them. In other words, we need to check the average/minimum magnitude around each
+        vector and to remove vector's whose magnitude is much greater. 
+    """
+    function local_magnitude_mask( ratio, VF::Array{T,N}; radius=4 ) where {T,N}
+
+        mags = magnitudes( VF ); 
+        mask = zeros( Bool, size(mags) ); 
+        
+        for ci in CartesianIndices( mags )
+            sum_mag  = localOp( Tuple( ci ), radius, mags, op=(x)->(sum(x)) ) - mags[ci]
+            sum_N    = localOp( Tuple( ci ), radius, mags, op=(x)->(length(x)-1) )
+            mean_mag = sum_mag/sum_N
+            mask[ ci ] = mags[ci]/mean_mag < ratio
+        end
+        VF_c = copy( VF ); 
+        for c in 1:size(VF,1)
+            VF_c[c,:,:] .*= mask
+        end
+        return VF_c, Bool.( mask .== 0 )
+    end
+
 end
 
-function similaritySpeedAveraging3D( avg_radius::Int, U::Array{T,3}, V::Array{T,3}, W::Array{T,3}; st=0.0, nt=0.1 ) where {T<:AbstractFloat}
-    return similaritySpeedAveraging3D( Tuple( ones( 3, Int ) ) .* avg_radius, U, V, W, st=st, nt=nt ); 
+begin ########################################################### COMPUTING COLLECTIVENESS
+
+    """
+        Computes the local similarity for each vector in a vector field, where each component
+        of the vector field is given in its own array.
+            
+        In other words: for each vector it looks at its neighboring vectors and counts the
+        proportion of the neighbouring vectors that have a similar direction. In particular, 
+        "having a similar direction" means that the angle between the vectors is smaller than 
+        "max_angle". 
+
+        The first parameter is the size of the neighboring region. 
+
+        Usage: 
+
+            coll = collectiveness( 4, U, V ); # 2D similarity in a 9x9 region around each vector
+            coll = collectiveness( (3,3,2), U, V, W ); # 3D simliarity in a 7x7x5 region around each vector
+    """
+    function collectiveness( radius::dimable, arrays::Array{T,N}...; max_angle=40 )  where {T,N}
+        out = zeros( Float32, size(arrays[1]) ); 
+        collectiveness!( out, radius, arrays..., max_angle=max_angle ); 
+        return out
+    end
+
+    function collectiveness!( out, radius::dimable, arrays::Array{T,N}...; max_angle=40 ) where {T,N}
+
+        @assert size( out ) == size( arrays[1] ); 
+        ncomponents = length( arrays ); 
+        @assert 1 < ncomponents < 4
+
+        VF_size = size( arrays[1] ); 
+        min_dot = cosd( max_angle ); 
+        radii   = toDims3( radius )[1:N]
+
+        # we will need the magnitudes to normalize each vector
+        M = magnitudes( arrays ); 
+
+        for index in CartesianIndices( arrays[1] )
+
+            # normalized vector at "index"
+            mag  = M[ index ]
+            nvec = [ arrays[c,index]/mag for c in 1:ncomponents ]
+
+            # counting the number of similar neighbours around "index"
+            local_region = UnitRange.( max.( 1, Tuple(index) .- radii ),  min.( VF_size, Tuple(index) .+ radii ) )
+            N_neighbors  = prod( length.( local_region ) ); 
+            N_similar    = 0 
+            for local_index in CartesianIndices( local_region )
+                mag_  = M[ local_index ]
+                nvec_ = [ arrays[c][local_index]/mag_ for c in 1:ncomponents ]
+                dot_  = sum( vec .* nvec_ )
+                N_similar += dot_ > min_dot
+            end
+
+            out[index] = N_similar / N_neighbors
+            # TODO: integral dot product as a similarity measure
+        end
+        return nothing
+    end
+
+    """
+        Computes the local similarity for each vector in a vector field, where all components
+        of the vector field are combined into one array (VF).
+
+        Usage: 
+
+            coll = collectiveness( 4, U, V ); # 2D similarity in a 9x9 region around each vector
+            coll = collectiveness( (3,3,2), U, V, W ); # 3D simliarity in a 7x7x5 region around each vector
+    """
+    function collectiveness( radius::dimable, VF::Array{T,N}; max_angle=40 )  where {T,N}
+        out = zeros( Float32, size(VF)[2:end] ); 
+        collectiveness!( out, radius, VF, max_angle=max_angle ); 
+        return out
+    end
+
+    function collectiveness!( out::Array{T1,N1}, radius::dimable, VF::Array{T2,N2}; max_angle=40 ) where {T1,T2,N1,N2}
+
+        @assert 1 < size(VF,1) < 4
+        @assert N2 == N1 + 1
+        @assert all( [ size( out, i ) == size( VF, 1+i ) for i in 1:N1 ] ); 
+
+
+        VF_size = size( VF )[2:end]; 
+        min_dot = cosd( max_angle ); 
+        radii   = toDims3( radius )[1:N1]
+
+        # we will need the magnitudes to normalize each vector
+        M = magnitudes( VF ); 
+
+        for index in CartesianIndices( M )
+
+            # normalized vector at "index"
+            mag  = M[ index ]
+            nvec = VF[ :, index ] ./ mag
+
+            # counting the number of similar neighbours around "index"
+            local_region = UnitRange.( max.( 1, Tuple(index) .- radii ),  min.( VF_size, Tuple(index) .+ radii ) )
+            N_neighbors  = prod( length.( local_region ) ); 
+            N_similar    = 0 
+            for local_index in CartesianIndices( local_region )
+                mag_  = M[ local_index ]
+                nvec_ = VF[ :, local_index ] ./ mag_
+                dot_  = sum( nvec .* nvec_ )
+                N_similar += dot_ > min_dot
+            end
+
+            out[index] = N_similar / N_neighbors
+        end
+        return nothing
+    end
 end
 
-function similaritySpeedAveraging3D( avg_radius::NTuple{3,Int}, U::Array{T,3}, V::Array{T,3}, W::Array{T,3}; st=0.0, nt=0.1 ) where {T<:AbstractFloat}
+begin ########################################################### AVERAGING
+
+    """
+        spatial smoothing of vector fields stored as individual arrays (U,V or U,V,W)
+    """
+    function average( radius::dimable, arrays::Array{T,N}...) where {T,N}
+
+        ncomponents = length( arrays ); 
+        @assert 1 < ncomponents < 4
+
+        avg_arrays = [ copy( array ) for array in arrays ]
+
+        VF_size = size( arrays[1] ); 
+        radii   = toDims3( radius )[1:N]
     
-    u_avg   = zeros( T, size(U) );
-    v_avg   = zeros( T, size(V) );
-    w_avg   = zeros( T, size(W) );
-    h, w, d = size( U )
+        for index in CartesianIndices( VF_size )
 
-    for zet in 1:d, col in 1:w, row in 1:h
-
-        vec = U[row,col,zet], V[row,col,zet], W[row,col,zet]
-        mag = sqrt( sum( vec .* vec ) )
-        ( mag == 0 ) && ( continue; )
-        nvec = vec ./ mag; 
-
-        # variables to hold the averaged vector component
-        mean_u = 0.0;
-        mean_v = 0.0;
-        mean_w = 0.0;
-
-        r0, c0, z0 = max.(    1   , (row,col,zet) .- avg_radius )
-        r1, c1, z1 = min.( (h,w,d), (row,col,zet) .+ avg_radius ); 
-        len = length(r0:r1)*length(c0:c1)*length(z0:z1)
-
-        n = 0;
-        for z in z0:z1, x in c0:c1, y in r0:r1
-            vec2  = ( U[y,x,z], V[y,x,z], W[y,x,z] )
-            mag2  = sqrt( sum( vec2 .* vec2 ) ); 
-            nvec2 = vec2 ./ mag2
-            if sum( vec .* vec2 ) > st
-                mean_u += U[y,x,z]
-                mean_v += V[y,x,z]
-                mean_w += W[y,x,z]
-                n += 1;
+            avg_vector = localOp( Tuple(index), radius, arrays..., op=(x)->(Statistics.mean(x)) )
+            for c in 1:ncomponents
+                avg_arrays[c][index] = avg_vector[c]
             end
         end
-        u_avg[ row, col, zet ] = ( n/len < nt ) ? 0 : mean_u/n;
-        v_avg[ row, col, zet ] = ( n/len < nt ) ? 0 : mean_v/n;
-        w_avg[ row, col, zet ] = ( n/len < nt ) ? 0 : mean_w/n;
+
+        return avg_arrays
     end
 
-    return u_avg, v_avg, w_avg
-end
+    """
+        spatial smoothing of vector fields where all components are combined in a single
+        array.
+    """
+    function average( radius::dimable, VF::Array{T,N} ) where {T,N}
 
-""" Spatial averaging """
+        ncomponents = size( VF, 1 ); 
+        @assert 1 < ncomponents < 4
 
-function similarityMap( avg_radius::Int, U::Array{T,3}, V::Array{T,3}, W::Array{T,3}; st=0.0 )  where {T}
-    return similaritymap( ( 1, 1, 1 ) .* avg_radius, U, V, W, st=st ); 
-end
-function similarityMap( avg_radius::NTuple{3,Int}, U::Array{T,3}, V::Array{T,3}, W::Array{T,3};
-                        st=0.0 ) where {T<:AbstractFloat}
+        avg_VF = copy( VF )
 
-    similty = zeros( Float32, size(U) );
-    h, w, d = size( U )
+        VF_size = size( VF )[2:end]; 
+        radii   = toDims3( radius )[1:N-1]
+    
+        for index in CartesianIndices( VF_size )
 
-    for zet in 1:d
-        zmin = max( 1, zet-avg_radius[3] );
-        zmax = min( d, zet+avg_radius[3] );
-
-        for col in 1:w
-            cmin = max( 1, col-avg_radius[2] );
-            cmax = min( w, col+avg_radius[2] );
-
-            for row in 1:h
-
-                mag = sqrt( U[row,col,zet]^2 + V[row,col,zet]^2 + W[row,col,zet]^2 )
-                if mag == 0
-                    continue
-                end
-
-                nu1 = U[row,col,zet]/mag
-                nv1 = V[row,col,zet]/mag
-                nw1 = W[row,col,zet]/mag
-
-                rmin = max( 1, row-avg_radius[1] );
-                rmax = min( h, row+avg_radius[1] );
-
-                len  = length(rmin:rmax)*length(cmin:cmax)*length(zmin:zmax);
-
-				len  = ( 2 * avg_radius[1] + 1)*( 2 * avg_radius[2] + 1 )*( 2 * avg_radius[3] + 1 );
-
-                n = 0;
-                for z in zmin:zmax
-                    for x in cmin:cmax
-                        for y in rmin:rmax
-                            mag2 = sqrt( U[y,x,z]^2 + V[y,x,z]^2 + W[y,x,z]^2 )
-                            nu2  = U[y,x,z]/mag2
-                            nv2  = V[y,x,z]/mag2
-                            nw2  = W[y,x,z]/mag2
-                            dot  = nu1*nu2 + nv1*nv2 + nw1*nw2
-                            if dot > st
-                                n += 1;
-                            end
-                        end
-                    end
-                end
-
-                similty[row,col,zet] = (n/len);
-            end
+            avg_vector = localOp( Tuple(index), radius, VF, op=(x)->(Statistics.mean(x)) )
+            avg_VF[:,index] .= avg_vector
         end
+
+        return avg_VF
     end
 
-    return similty
+    """
+        TODO: space time averaging
+    """
+    function average_NDT( radius1::dimable, radius2::Int, arrays::Array{T,N}... )  where {T,N}
+    
+        avg_arrays = [ copy( array ) for array in arrays ]
+
+        num_timepoints = size(arrays[1])[end]
+        spatial_dims = size(arrays[1])[1:end-1]
+
+        for index in CartesianIndices( arrays[1] )
+            avg_vec1 = localOp( index[1:end-1], (radius1,0), arrays..., op=(x)->(Statistics.mean(x)))
+            avg_vec2 = localOp( index[1:end-1], (0,0,0,radius2), arrays..., op=(x)->(Statistics.mean(x)))
+        end
+
+        return avg_arrays
+    end
+
+    function average_NDT( radius1::dimable, radius2::Int, VF::Array{T,N} )  where {T,N}
+    
+        avg_arrays = copy( VF )
+
+        num_timepoints = size(VF)[end]
+        spatial_dims = size(VF)[2:end-1]
+
+        for index in CartesianIndices( arrays[1] )
+            avg_vec1 = localOp( index[1:end-1], (radius1,0), VF, op=(x)->(Statistics.mean(x)))
+            avg_vec2 = localOp( index[1:end-1], (0,0,0,radius2), VF, op=(x)->(Statistics.mean(x)))
+        end
+
+        return avg_arrays
+    end
+
 end
 
-function similarityMap( avg_radius::Int, U::Array{T,2}, V::Array{T,2}; st=0.0 ) where {T<:AbstractFloat}
-    return similarityMap( (1,1) .* avg_radius, U, V, W, st=st )
-end
+begin ########################################################### COLLECTIVENESS-GUIDED AVERAGING
 
-
-function similarityMap( avg_radius::NTuple{2,Int}, U::Array{T,2}, V::Array{T,2}; st=0.0 ) where {T<:AbstractFloat}
-
-    similty = zeros( Float32, size(U) );
-    h, w = size( U )
-    len  = avg_radius^2;
-
-    for col in 1:w
-        cmin = max( 1, col-avg_radius[2] );
-        cmax = min( w, col+avg_radius[2] );
-
-        for row in 1:h
-
-            mag = sqrt( U[row,col]^2 + V[row,col]^2 )
+    """ Spatial averaging + similarity thresholding combo 
+    """
+    function similarityAveraging( radius::dimable, arrays::Array{T,N}...; 
+                                  max_angle=20, 
+                                  normalize=true,
+                                  scale_by_similarity=true,
+                                  similarity_exponent=2  ) where {T,N}
+    
+        ncomponents = length(arrays)
+        @assert 1 < ncomponents < 4
+    
+        radii   = toDims3( radius )[1:N]
+        min_dot = cosd( max_angle )
+        VF_size = size( arrays[1] ); 
+        avg_arrays = [ copy(array) for array in arrays ]
+    
+        M = magnitudes( arrays... )
+    
+        for index in CartesianIndices( arrays[1] )
+    
+            mag = M[ index ]
             if mag == 0
                 continue
             end
+    
+            # normalized vector at "index"
+            nvec = [ arrays[c][index]/mag for c in 1:ncomponents ]
+    
+            # counting the number of similar neighbours around "index"
+            local_region = UnitRange.( max.( 1, Tuple(index) .- radii ),  min.( VF_size, Tuple(index) .+ radii ) )
+            N_neighbors  = prod( length.( local_region ) ); 
+            N_similar    = 0 
+            avg_vector   = [ 0.0 for c in 1:ncomponents ]; 
+            for local_index in CartesianIndices( local_region )
+                mag_  = M[ local_index ]
+                nvec_ = [ arrays[c][local_index]/mag_ for c in 1:ncomponents ]
+                dot_  = sum( nvec .* nvec_ )
+    
+                avg_vector .+= nvec_ .* mag_ .* ( dot_ > min_dot )
+                N_similar   += dot_ > min_dot
+            end
+    
+            fac = 1
+            fac /= ( normalize ) ? sqrt( sum( avg_vector .^ 2 ) ) :  prod( length.( local_region ) ); 
+            fac *= ( scale_by_similarity ) ? (N_similar/N_neighbors)^similarity_exponent : 1; 
+    
+            for c in 1:ncomponents
+                avg_arrays[c][index] = avg_vector[c] * fac
+            end
+        end
+    
+        return avg_arrays
+    end
 
-            nu1 = U[row,col]/mag
-            nv1 = V[row,col]/mag
+    """ Spatial averaging + similarity thresholding combo """
+    function similarityAveraging( radius::dimable, VF::Array{T,N}; 
+                                  max_angle=20, 
+                                  normalize=true,
+                                  scale_by_similarity=true,
+                                  similarity_exponent=2  ) where {T,N}
+    
+        ncomponents = size(VF,1)
+        @assert 1 < ncomponents < 4
+    
+        radii   = toDims3( radius )[1:N-1]
+        min_dot = cosd( max_angle )
+        VF_size = size( VF )[2:end]
+        avg_VF  = copy( VF )
+    
+        M = magnitudes( VF )
+    
+        for index in CartesianIndices( VF_size )
+    
+            mag = M[ index ]
+            if mag == 0
+                continue
+            end
+    
+            # normalized vector at "index"
+            nvec = VF[:,index]./mag
+    
+            # counting the number of similar neighbours around "index"
+            local_region = UnitRange.( max.( 1, Tuple(index) .- radii ),  min.( VF_size, Tuple(index) .+ radii ) )
+            N_neighbors  = prod( length.( local_region ) ); 
+            N_similar    = 0 
+            avg_vector   = [ 0.0 for c in 1:ncomponents ]; 
+            for local_index in CartesianIndices( local_region )
+                mag_  = M[ local_index ]
+                nvec_ = VF[:,local_index]./mag_
+                dot_  = sum( nvec .* nvec_ )
+    
+                avg_vector .+= nvec_ .* mag_ .* ( dot_ > min_dot )
+                N_similar   += dot_ > min_dot
+            end
+    
+            fac  = 1
+            fac /= ( normalize ) ? sqrt( sum( avg_vector .^ 2 ) ) :  1; 
+            fac *= ( scale_by_similarity ) ? (N_similar/N_neighbors)^similarity_exponent : 1; 
+    
+            avg_VF[:,index] .= avg_vector .* fac
+        end
+    
+        return avg_VF
+    end
 
-            rmin = max( 1, row-avg_radius[1] );
-            rmax = min( h, row+avg_radius[1] );
+end
+
+begin ########################################################### FILTERING
+
+    begin ###### REPLACEMENT SCHEMES 
+        """
+            The replacement functions take a coordinate, a radius and the PIV vector field components,
+            and return the mean or median vector around the input coordinate. zeroReplace simply returns
+            a zero-vector.
+
+            The radius can be a single number, in which case all dimensions will use the same radius. 
+            Alternatively, one can provide a different radius for each dimension.
+        """
+
+        function zeroReplace( coords::NTuple{N,Int}, radius::dimable, arrays::Array{T,N}... ) where {T,N}
+            return zeros( T, length(arrays) );
+        end
+
+        function zeroReplace( coords::NTuple{N,Int}, radius::dimable, VF::Array{T,M} ) where {T,N,M}
+            return zeros( T, size(VF,1) );
+        end
+
+        function medianReplace( coords::NTuple{N,Int}, radius::dimable, arrays::Array{T,N}... ) where {T,N}
+            return localOp( coords, radius, arrays..., op=(x)->(Statistics.median(x)) )
+        end
+
+        function medianReplace( coords::NTuple{N,Int}, radius::dimable, VF::Array{T,M} ) where {T,N,M}
+            return localOp( coords, radius, VF, op=(x)->(Statistics.median(x)) )
+        end
+
+        function meanReplace( coords::NTuple{N,Int}, radius::dimable, arrays::Array{T,N}... ) where {T,N}
+            return localOp( coords, radius, arrays..., op=(x)->(Statistics.median(x)) )
+        end
+
+        function meanReplace( coords::NTuple{N,Int}, radius::dimable, VF::Array{T,M}... ) where {T,N,M}
+            return localOp( coords, radius, VF, op=(x)->(Statistics.median(x)) )
+        end
+
+        function replace!( coords, replacement, filtered::Array{T,N}... ) where {T,N}
+            for c in 1:length(filtered)
+                filtered[c][coords] = replacement[c]
+            end
+            return nothing
+        end
+
+        function replace!( coords, replacement, filtered::Array{T,N} ) where {T,N}
+            filtered[:,coords] .= replacement
+            return nothing
+        end
+    end
+
+    begin ###### FILTERING TYPES: THRESHOLD OR STATISTICAL ( standard deviations from the mean )
+
+        """
+            Creates a mask of elements whose value is > n standard deviations away from the mean. 
+            The exact quantity that we compute is dynamically chosen by "fun". By default, "fun"
+            computes the magnitude of the input vector field.
+            
+            mask = STD_masking( 1.8, U, V [, W ] ) 
+            mask = STD_masking( 2.2, VF, op=(VF)->(quickPIV.similarity(VF)) )
+        """
+        function STD_masking( n, arrays::Array{T,N}...; 
+                              fun=(arrays)->(magnitudes(arrays...)) ) where {T,N}
+
+            map  = fun( arrays... ) 
+            return STD_masking( n, map, fun=(x)->(x) )
+        end
+
+        #=
+          This function is meant to accept a single array that contains all vector field components.
+          However, we can use it with arbitrary arrays, such as the signal-to-noise ratio or vector 
+          magnitudes, as long as we set "fun" to return the inputs themselves: (x)->(x) 
+        =#
+        function STD_masking( n, VF::Array{T,N}; 
+                              fun=(VF)->(magnitudes(VF)) ) where {T,N}
+
+            map  = fun( VF ) 
+            mask = zeros( Bool, size(map) )
+            mean = Statistics.mean( map );
+            std  = Statistics.std( map, mean=mean ) ;
+            @simd for e in 1:length( map )
+                @inbounds mask[ e ] = abs( map[e] - mean ) > n*std
+            end
+            return mask
+        end
+
+        """
+            Applies "STD_masking" and replaces the resulting mask .== 1 with the
+            chosen replacement scheme.
+        """
+        function STD_filtering( n, arrays::Array{T,N}...; 
+                                fun=(x)->(magnitudes(x...)), 
+                                replaceFun=meanReplace, 
+                                radius=2  ) where {T,N}
+
+            mask   = STD_masking( n, arrays..., fun=fun ); 
+            coords = CartesianIndices( mask )[ mask .== 1 ]; 
+            filtered = [ copy(array) for array in arrays ]
+            for index in coords
+                replacement = replacefun( Tuple(index), radius, arrays... )
+                replace!( index, replacement, filtered )
+            end
+            return filtered
+        end
+
+        function STD_filtering( n, VF::Array{T,N}; 
+                                fun=(x)->(magnitudes(x)), 
+                                replaceFun=meanReplace, 
+                                radius=2  ) where {T,N}
+
+            mask   = STD_masking( n, VF, fun=fun ); 
+            coords = CartesianIndices( mask )[ mask .== 1 ]; 
+            filtered = copy( VF )
+            for index in coords
+                replacement = replaceFun( Tuple(index), radius, VF )
+                replace!( index, replacement, filtered )
+            end
+            return filtered
+        end
+
+        """
+            Creates a mask of elements whose value is > or < threshold. 
+
+            The exact quantity that we compute is dynamically chosen by "fun". By default, "fun"
+            computes the magnitude of the input vector field.
+        """
+
+        function TH_masking( th, arrays::Array{T,N}...; 
+                             fun=(arrays)->(magnitudes(arrays...)), 
+                             cmp=(x,th)->(x>th) ) where {T,N}
+
+            map  = fun( arrays... )
+            return TH_masking( th, map, fun=(x)->(x) )
+        end
+
+        function TH_masking( th, VF::Array{T,N};
+                             fun=(array)->(magnitudes(array)), 
+                             cmp=(x,th)->(x>th) ) where {T,N}
+
+            map = fun( VF )
+            mask = zeros( Bool, size(map) )
+            @simd for e in 1:length( map )
+                @inbounds mask[ e ] = cmp( map[e], th )
+            end
+            return mask
+        end
+
+        """
+            Computes a mask through tresholding and replaces the values where mask .== 1
+            with the desired replacement scheme.
+        """
+        function TH_filtering( th, arrays::Array{T,N}...; 
+                               fun=(x)->(magnitudes(x...)), 
+                               cmp=(x,th)->(x>th), 
+                               replaceFun=meanReplace, 
+                               radius=2  ) where {T,N}
+
+            mask   = TH_masking( th, arrays..., fun=fun, cmp=cmp ); 
+            coords = CartesianIndices( mask )[ mask .== 1 ]; 
+            filtered = [ copy(array) for array in arrays ]
+            for index in coords
+                replacement = replacefun( Tuple(index), radius, arrays... )
+                replace!( index, replacement, filtered )
+            end
+            return filtered
+        end
+
+        function TH_filtering( th, VF::Array{T,N}; 
+                               fun=(x)->(magnitudes(x)), 
+                               cmp=(x,th)->(x>th), 
+                               replaceFun=meanReplace, 
+                               radius=2  ) where {T,N}
+
+            mask   = TH_masking( th, VF, fun=fun, cmp=cmp ); 
+            coords = CartesianIndices( mask )[ mask .== 1 ]; 
+            filtered = copy( VF )
+            for index in coords
+                replacement = replacefun( Tuple(index), radius, VF )
+                replace!( index, replacement, filtered )
+            end
+            return filtered
+        end
+    end
+
+    """
+        Remove vectors with low signal-to-noise.
+    """
+    function remove_low_SN( SN, threshold, arrays::Array{T,N}...;
+                            replace::Function=zeroReplace, radius=1 ) where {T,N}
+
+        filtered = TH_filtering( threshold, arrays...; 
+                                 fun=(x)->(SN), 
+                                 cmp=(x,th)->(x<th),
+                                 replace=replace, 
+                                 radius=radius )
+        return filtered
+    end
+
+    function remove_low_SN( SN, threshold, VF::Array{T,N};
+                            replace::Function=zeroReplace, radius=1 ) where {T,N}
+
+        filtered = TH_filtering( threshold, VF; 
+                                 fun=(x)->(SN), 
+                                 cmp=(x,th)->(x<th),
+                                 replace=replace, 
+                                 radius=radius )
+        return filtered
+    end
+
+    """
+        TODO: magnitude filtering
+    """
+    function filter_by_magnitudes( th_or_n,  )
+
+    end
 
 
-            n = 0;
-            for x in cmin:cmax, y in rmin:rmax
-                mag2 = sqrt( U[y,x]^2 + V[y,x]^2 )
-                nu2  = U[y,x]/mag2
-                nv2  = V[y,x]/mag2
-                dot  = nu1*nu2 + nv1*nv2
-                if dot > st
-                    n += 1;
+end
+
+begin ########################################################### DIVERGENCE
+
+    """
+        We compute divergence by cross-correlating a vector field kernel containing a 
+        "sink" pattern with the normalized PIV vector field. This results in high
+        positive values in regions of the PIV vector fields that resemble the "sink"
+        pattern and high negative values in regions that resemble a "source". 
+
+        In any case, the "sink" kernel contains normalized vectors pointing towards
+        the center of the kernel. Therefore, we need to compute the magnitudes at 
+        at position of the kernel, so that we can normalize the components (U,V or
+        U,V,W) of the sink.
+    """
+    function normalize_sink( radii; typ=Float32, scales=ones(eltype(radii),length(radii)), circle=false )
+
+        sink_size = 2 .* radii .+ 1; 
+        center    = div.( sink_size .+ 1 , 2 )
+        
+        vec_magnitudes = zeros( typ, sink_size ); 
+        max_radius = maximum( radii ); 
+        
+        for ci in CartesianIndices( vec_magnitudes )
+            vec_magnitudes[ci] = sqrt( sum( ( center .* scales .- Tuple( ci ) .* scales ).^2 ) ); 
+            if circle
+                vec_magnitudes[ci] *= vec_magnitudes[ci] .<= max_radius
+            end
+        end
+        vec_magnitudes[ center... ] = 1; 
+        
+        return vec_magnitudes
+    end
+
+    """
+        Cross-correlating the "sink" kernel with the input vector field can be done
+        by cross-correlating each component separately, and adding everything together.
+        Thus, we can first cross-correlate the U components of the "sink" and the PIV
+        vectorfield... to which we add the cross-correlation of the V components... 
+        followed by the W components (in 3D). 
+
+        Therefore, we only need one component of the "sink" kernel at a time. The 
+        function below computes the "sink" values at the desired dimension, and
+        stores them into the preallocated array "sink", for in-place operation.
+    """
+    function sink!( sink::AbstractArray{T,N}, vec_magnitudes, dim ) where {T,N}
+        
+        @assert all( isodd.( size(sink) ) );
+        
+        center = div.( size(sink) .+ 1 , 2 ); 
+        
+        for ci in CartesianIndices( sink )
+            if vec_magnitudes[ci] == 0
+                sink[ci] = 0
+            else
+                sink[ci] = ( center[dim] - ci[dim] ) / vec_magnitudes[ci]; 
+            end
+        end
+
+        sink[ isnan.( sink ) ] .= 0.0
+        
+        return nothing
+    end
+
+    """
+        Out-of-place computation of the "sink" pattern for the desired dimension.
+
+        sink_u = sink( radii, 1 );
+        sink_v = sink( radii, 2 ); 
+        sink_w = sink( radii, 3 );
+    """
+    function sink( radii, dim=1 )
+        sinkM = normalize_sink( radii )
+        sink  = copy( sinkM )
+        sink!( sink, sinkM, dim )
+        return sink
+    end
+
+    """
+        The input vector fild needs to be normalized, so that cross-correlation of
+        the "sink" pattern with the vector field corresponds to the sum of normalized
+        dot products between the two, which measures the angle-similarity of the
+        between the two. 
+    """
+    function normalize_vectorfield( VF; normalize=true, min_speed=0 )
+
+        VF_copy = copy( VF ); 
+        M = multi_quickPIV.magnitudes( VF );
+
+        if min_speed > 0
+            for c in 1:size(VF,1)
+                VF_copy[ c, UnitRange.(1,size(VF)[2:3])... ] .*= M .> min_speed
+            end
+        end
+
+        if normalize
+            M[ M .== 0 ] .= 1; 
+            for c in 1:size(VF,1)
+                VF_copy[ c, UnitRange.(1,size(VF)[2:3])... ] ./= M
+            end
+        end
+
+        return VF_copy    
+    end
+
+    """
+        Compute divergence by cross-correlating a sink pattern of size "radii" with 
+        the input vector field.     
+
+        NOTE: divergence is actually computing convergence at the moment...
+    """
+    function divergence( radii, VF::Array{T,N}; normalize=false, min_speed=0, divide_by="N", circle=false ) where {T,N}
+
+        # normalizing vector field. 
+        VF_norm = normalize_vectorfield( VF, normalize=normalize, min_speed=min_speed ); 
+        
+        # Preallocating memory for the sink pattern and precomputing the magnitudes at each sink position.
+        sink_magnitudes = normalize_sink( radii, typ=T, circle=circle )
+        sink = zeros( T, size(sink_magnitudes) )
+
+        mags     = magnitudes( VF_norm ); 
+        sum_mags = FFTCC_crop( ones( T, size( sink_magnitudes ) ), mags )
+        
+        # output
+        divergence = zeros( T, size( VF )[2:end] )
+        
+        # cross-correlation variables
+        isize = size( sink ); 
+        ssize = size( VF )[2:end]; 
+        prec  = sizeof( T ) * 8; 
+        tmp_data = multi_quickPIV.allocate_tmp_data( multi_quickPIV.FFTCC(), isize, ssize, precision=prec, unpadded=false, good_pad=true )
+        
+        # cross-correlating each dimension separately and adding the results into divergence
+        n_components = size( VF, 1 )
+        for c in 1:n_components
+            sink!( sink, sink_magnitudes, c )
+            tmp_data[1] .= 0.0
+            tmp_data[2] .= 0.0
+            tmp_data[1][UnitRange.(1,isize)...] .= sink; 
+            tmp_data[2][UnitRange.(1,ssize)...] .= VF_norm[c,UnitRange.(1,ssize)...]
+            
+            multi_quickPIV._FFTCC!( tmp_data... )
+            
+            r2c_pad = size(tmp_data[1]) .- tmp_data[end]; 
+            Base.circshift!(  view( tmp_data[2], UnitRange.( 1, size(tmp_data[1]) .- r2c_pad )... ),
+                              view( tmp_data[1], UnitRange.( 1, size(tmp_data[1]) .- r2c_pad )... ),
+                              div.( isize, 2 ) ); 
+            divergence .+= tmp_data[2][ UnitRange.( 1, size(divergence) )... ]                
+        end
+
+        if divide_by == "N"
+            # dividing by the number of vectors... 
+            divergence ./= sum( sink_magnitudes .> 0 )
+        elseif divide_by == "mags"
+            # dividing by sum of vector magnitudes... which is the number of normalized vectors anyways
+            divergence ./= sum_mags; 
+        end
+        
+        multi_quickPIV.destroy_fftw_plans( multi_quickPIV.FFTCC(), tmp_data )
+        
+        return divergence
+    end
+
+
+    """
+        The input vector field is a matrix containing the U and V [ and W ]components in its first dimension. 
+        U = VF[ 1, :, : ], VF = [ 2, :, : ];
+        
+        The y derivative is computed on U along the rows: ( U[ row+1, col ] - U[ row-1, col ] )/( 2 ) 
+            == ( VF[ 1, row+1, col ] - VF[ 1, row-1, col ] )/( 2 ). 
+
+        The x derivative is computed on V along the columns: ( V[ row+1, col ] - V[ row-1, col ] )/( 2 )
+            ==  ( VF[ 2, row, col+1 ] - VF[ 2, row, col-1 ] )/( 2 ). 
+
+        https://de.mathworks.com/help/matlab/ref/divergence.html#mw_b9736035-36f1-4f34-81f7-d530a9216a37
+    """
+    function matlab_divergence( VF::Array{T,N} ) where {T,N}
+        
+        Ndims   = size( VF, 1 ); 
+        vf_size = size( VF )[2:end]; 
+
+        output  = zeros( Float32, vf_size ); 
+
+        for ci in CartesianIndices( vf_size )
+
+            coord = Tuple( ci ); 
+
+            # adding the partial derivative for each dimension (Ndims)
+            for i in 1:Ndims
+                offset = zeros( Int, Ndims ); 
+                offset[i] = 1; 
+                coord_minus = max.( 1, min.( vf_size, coord .- offset ) )
+                coord_plus  = max.( 1, min.( vf_size, coord .+ offset ) )
+                partial_der = Float32( ( VF[ i, coord_plus... ] .- VF[ i, coord_minus... ] )/abs( coord_minus[i] - coord_plus[i] ) )
+                output[ ci ] += partial_der
+            end
+        end
+        
+        return output
+    end
+
+    # TODO: divergence with vector fields as separate arrays
+
+    """
+        
+    """
+    function multiscale_divergence( radii, VF::Array{T,N}; min_value=0.2, normalize=true, min_speed=0, divide_by="N" ) where {T,N}
+
+        max_divergence_  = zeros( T, size(VF)[2:end] )
+        max_convergence_ = zeros( T, size(VF)[2:end] )
+        max_divergence_scale  = zeros( Int, size(VF)[2:end] )
+        max_convergence_scale = zeros( Int, size(VF)[2:end] )
+
+        for rad in radii
+
+            # Multiplying by -1 because divergence is computing convergence at the moment
+            divergence_ = -1 .* divergence( rad, VF, normalize=normalize, min_speed=min_speed, divide_by=divide_by ); 
+
+            for i in 1:length( divergence_ )
+                
+                divg = divergence_[i]
+                conv = -1 * divg; 
+
+                # 
+                if ( divg > min_value ) && ( divg > max_divergence_[i] )
+                    max_divergence_scale[i] = rad[1]
+                    max_divergence_[i] = divg
+                end
+
+                #
+                if ( conv > min_value ) && ( conv > max_convergence_[i] )
+                    max_convergence_scale[i] = rad[1]
+                    max_convergence_[i] = conv
                 end
             end
-
-            similty[row,col] = n/len;
         end
+
+        return max_divergence_scale, max_divergence_, max_convergence_scale, max_convergence_
     end
 
-    return similty
 end
 
-function velocityMap( U::Array{T,3}, V::Array{T,3}, W::Array{T,3} ) where {T<:AbstractFloat}
+begin ########################################################### PSEUDO-TRAJECTORIES 
 
-    mags = zeros( Float32, size( U ) )
-    for li in 1:length( U )
-        mags[li] = sqrt( U[li]*U[li] + V[li]*V[li] + W[li]*W[li] )
-    end
-    return mags
-end
+    """ PIV Trajectories, work started by Michelle Gottlieb  """
 
-# 2D
-function sink( rad::Int, pos::NTuple{2,Int} )
-    return [ [ (pos[1]-y )/sqrt( (pos[1]-y)^2 + (pos[2]-x)^2 ),
-               (pos[2]-x )/sqrt( (pos[1]-y)^2 + (pos[2]-x)^2 ) ] for 
-            y in pos[1]-rad:pos[1]+rad, x in pos[2]-rad:pos[2]+rad ]
-end
+    function PIVtrajectories( U::Array{P,4}, V::Array{P,4}, W::Array{P,4}, T0, T1, numpoints; 
+                            subregion=( 1:-1, 1:-1, 1:-1 ), scale=(1,1,1) ) where {P<:Real}
 
-# 3D
-function sink( rad::Int, pos::NTuple{3,Int} )
-    return [ [ (pos[1]-y )/sqrt( (pos[1]-y)^2 + (pos[2]-x)^2 + (pos[3]-z)^2 ),
-               (pos[2]-x )/sqrt( (pos[1]-y)^2 + (pos[2]-x)^2 + (pos[3]-z)^2 ),
-               (pos[3]-z )/sqrt( (pos[1]-y)^2 + (pos[2]-x)^2 + (pos[3]-z)^2 ) ] for
-	       y in pos[1]-rad:pos[1]+rad, x in pos[2]-rad:pos[2]+rad, z in pos[3]-rad:pos[3]+rad ]
-end
+        numT = T1 - T0;
+        TrajectoriesY = zeros( Float32, numT, numpoints )
+        TrajectoriesX = zeros( Float32, numT, numpoints )
+        TrajectoriesZ = zeros( Float32, numT, numpoints )
 
-function crossCorrelateSink!( u, v, w, sink, corr )
+        # Length of the each axis of the vector field. 
+        dims  = ( length( 1:size(U,1) ), length( 1:size(U,2) ), length( 1:size(U,3) ) );
 
-    hi, wi, di = size(sink) # interrogation area
-    hs, ws, ds = size(u)    # search area
+        # The user can limit the simulation to a certain subregion of the vector field. 
+        sampling_region = [ length( subregion[i] ) == 0 ? (2:dims[i]-1) : subregion[i] for i in 1:3 ]; 
 
-    @inbounds begin
-    for z in di:-1:1
-        for c in wi:-1:1
-            for r in hi:-1:1
-                px = sink[ r, c, z ];
-                iy = hi-r+1;
-                ix = wi-c+1;
-                iz = di-z+1;
-                corr[ iy:(iy-1+hs),
-                      ix:(ix-1+ws),
-                      iz:(iz-1+ds) ] .+= px[1] .* u .+ px[2] .* v .+ px[3] .* w
-            end
-        end
-    end
-    end # @inbounds
-end
+        scale = (typeof(scale)<:Number) ? (scale,scale,scale) : scale
 
-function divergenceMap( r::Int, U::Array{T,3}, V::Array{T,3}, W::Array{T,3}
-                      ) where {T<:AbstractFloat}
+        for pidx in 1:numpoints
 
-    interSink = sink( r, (0,0,0) );
+            # Placing a new particle inside the vector-field. This is done by 
+            # randomly picking a random position withing the vector-field. 
+            starting_pos = rand.( sampling_region ); 
 
-    for idx in 1:length(interSink)
-        isnan(interSink[idx][1]) && ( interSink[idx][1] = 0.0 );
-        isnan(interSink[idx][2]) && ( interSink[idx][2] = 0.0 );
-        isnan(interSink[idx][3]) && ( interSink[idx][3] = 0.0 );
-    end
+            # Recording the starting position in the first timepoints in the trajectory tables for point $pidx. 
+            TrajectoriesY[ 1, pidx ] = Float32( starting_pos[1] )
+            TrajectoriesX[ 1, pidx ] = Float32( starting_pos[2] )
+            TrajectoriesZ[ 1, pidx ] = Float32( starting_pos[3] )
 
-    # normalizing vector fields
-    NU = zeros( T, size( U ) );
-    NV = zeros( T, size( V ) );
-    NW = zeros( T, size( W ) );
+            # Sampling the translation at the current ( starting ) position
+            dY = Float32( scale[1] * U[ starting_pos..., T0 ] )
+            dX = Float32( scale[2] * V[ starting_pos..., T0 ] )
+            dZ = Float32( scale[3] * W[ starting_pos..., T0 ] )
 
-    for e in 1:length( U )
-        mag   = sqrt( U[e]*U[e] + V[e]*V[e] + W[e]*W[e] )
-        NU[e] = ( mag == 0 ) ? 0.0 : U[e]/mag
-        NV[e] = ( mag == 0 ) ? 0.0 : V[e]/mag
-        NW[e] = ( mag == 0 ) ? 0.0 : W[e]/mag
-    end
+            # moving forward in time, from T0 to T1
+            for t in 2:numT
 
+                # New_pos = previous position + translation (dU,dV,dW); 
+                updated_pos = ( TrajectoriesY[t-1, pidx], TrajectoriesX[t-1, pidx], TrajectoriesZ[t-1, pidx] ) .+ ( dY, dX, dZ ); 
 
-    cmatrix = zeros( Float32, size(NU) .+ 2*r )
+                # Recording the updated position in the trajectory tables
+                TrajectoriesY[t,pidx] = updated_pos[1]
+                TrajectoriesX[t,pidx] = updated_pos[2]
+                TrajectoriesZ[t,pidx] = updated_pos[3]
 
-    crossCorrelateSink!( NU, NV, NW, interSink, cmatrix )
+                # Obtaining the integer index of the updated position
+                int_updated_pos = round.( Int64, updated_pos ); 
 
-    return cmatrix
-end
+                # If the (integer) updated position is out of the coordinates of the vector field, stop
+                if any( int_updated_pos .< 1 ) || any( int_updated_pos .> dims ) 
+                    TrajectoriesY[ t:end, pidx ] .= TrajectoriesY[ t-1, pidx ]
+                    TrajectoriesX[ t:end, pidx ] .= TrajectoriesX[ t-1, pidx ]
+                    TrajectoriesZ[ t:end, pidx ] .= TrajectoriesZ[ t-1, pidx ]
+                    break
+                end
 
+                # Sampling the translation at the (integer) updated position
+                dY = Float32( scale[1] * U[ int_updated_pos..., T0+t-1 ] )
+                dX = Float32( scale[2] * V[ int_updated_pos..., T0+t-1 ] )
+                dZ = Float32( scale[3] * W[ int_updated_pos..., T0+t-1 ] )
 
-""" PIV Trajectories, work started by Michelle Gottlieb  """
-
-function PIVtrajectories( U::Array{P,4}, V::Array{P,4}, W::Array{P,4}, T0, T1, numpoints; 
-                          subregion=( 1:-1, 1:-1, 1:-1 ), scale=(1,1,1) ) where {P<:Real}
-
-    numT = T1 - T0;
-    TrajectoriesY = zeros( Float32, numT, numpoints )
-    TrajectoriesX = zeros( Float32, numT, numpoints )
-    TrajectoriesZ = zeros( Float32, numT, numpoints )
-
-    # Length of the each axis of the vector field. 
-    dims  = ( length( 1:size(U,1) ), length( 1:size(U,2) ), length( 1:size(U,3) ) );
-
-    # The user can limit the simulation to a certain subregion of the vector field. 
-    sampling_region = [ length( subregion[i] ) == 0 ? (2:dims[i]-1) : subregion[i] for i in 1:3 ]; 
-
-    scale = (typeof(scale)<:Number) ? (scale,scale,scale) : scale
-
-    for pidx in 1:numpoints
-
-        # Placing a new particle inside the vector-field. This is done by 
-        # randomly picking a random position withing the vector-field. 
-        starting_pos = rand.( sampling_region ); 
-
-        # Recording the starting position in the first timepoints in the trajectory tables for point $pidx. 
-        TrajectoriesY[ 1, pidx ] = Float32( starting_pos[1] )
-        TrajectoriesX[ 1, pidx ] = Float32( starting_pos[2] )
-        TrajectoriesZ[ 1, pidx ] = Float32( starting_pos[3] )
-
-        # Sampling the translation at the current ( starting ) position
-        dY = Float32( scale[1] * U[ starting_pos..., T0 ] )
-        dX = Float32( scale[2] * V[ starting_pos..., T0 ] )
-        dZ = Float32( scale[3] * W[ starting_pos..., T0 ] )
-
-        # moving forward in time, from T0 to T1
-        for t in 2:numT
-
-            # New_pos = previous position + translation (dU,dV,dW); 
-            updated_pos = ( TrajectoriesY[t-1, pidx], TrajectoriesX[t-1, pidx], TrajectoriesZ[t-1, pidx] ) .+ ( dY, dX, dZ ); 
-
-            # Recording the updated position in the trajectory tables
-            TrajectoriesY[t,pidx] = updated_pos[1]
-            TrajectoriesX[t,pidx] = updated_pos[2]
-            TrajectoriesZ[t,pidx] = updated_pos[3]
-
-            # Obtaining the integer index of the updated position
-            int_updated_pos = round.( Int64, updated_pos ); 
-
-            # If the (integer) updated position is out of the coordinates of the vector field, stop
-            if any( int_updated_pos .< 1 ) || any( int_updated_pos .> dims ) 
-                TrajectoriesY[ t:end, pidx ] .= TrajectoriesY[ t-1, pidx ]
-                TrajectoriesX[ t:end, pidx ] .= TrajectoriesX[ t-1, pidx ]
-                TrajectoriesZ[ t:end, pidx ] .= TrajectoriesZ[ t-1, pidx ]
-                break
             end
 
-            # Sampling the translation at the (integer) updated position
-            dY = Float32( scale[1] * U[ int_updated_pos..., T0+t-1 ] )
-            dX = Float32( scale[2] * V[ int_updated_pos..., T0+t-1 ] )
-            dZ = Float32( scale[3] * W[ int_updated_pos..., T0+t-1 ] )
-
         end
 
+        return TrajectoriesY, TrajectoriesX, TrajectoriesZ
     end
 
-    return TrajectoriesY, TrajectoriesX, TrajectoriesZ
-end
+
+    function PIVtrajectories_grid( U::Array{P,4}, V::Array{P,4}, W::Array{P,4}, T0, T1, numpoints; 
+                                    subregion=( 1:-1, 1:-1, 1:-1 ), step=(1,1,1), scale=(1,1,1) ) where {P<:Real}
+
+        # Length of the each axis of the vector field. 
+        dims  = ( length( 1:size(U,1) ), length( 1:size(U,2) ), length( 1:size(U,3) ) );
+
+        # The user can limit the simulation to a certain subregion of the vector field. 
+        sampling_region = [ length( subregion[i] ) == 0 ? (2:step[i]:dims[i]-1) : Base.StepRange( subregion[i].start, step[i], subregion[i].stop ) for i in 1:3 ];
+        scale = (typeof(scale)<:Number) ? (scale,scale,scale) : scale
+
+        numT = T1 - T0;
+        TrajectoriesY = zeros( Float32, numT, prod( length.(sampling_region) ) )
+        TrajectoriesX = zeros( Float32, numT, prod( length.(sampling_region) ) )
+        TrajectoriesZ = zeros( Float32, numT, prod( length.(sampling_region) ) )
 
 
-function PIVtrajectories_grid( U::Array{P,4}, V::Array{P,4}, W::Array{P,4}, T0, T1, numpoints; 
-                                subregion=( 1:-1, 1:-1, 1:-1 ), step=(1,1,1), scale=(1,1,1) ) where {P<:Real}
+        pidx = 0; 
+        for z in sampling_region[3], x in sampling_region[2], y in sampling_region[1]
 
-    # Length of the each axis of the vector field. 
-    dims  = ( length( 1:size(U,1) ), length( 1:size(U,2) ), length( 1:size(U,3) ) );
+            pidx += 1; 
 
-    # The user can limit the simulation to a certain subregion of the vector field. 
-    sampling_region = [ length( subregion[i] ) == 0 ? (2:step[i]:dims[i]-1) : Base.StepRange( subregion[i].start, step[i], subregion[i].stop ) for i in 1:3 ];
-    scale = (typeof(scale)<:Number) ? (scale,scale,scale) : scale
+            # Placing a new particle inside the vector-field. This is done by 
+            # randomly picking a random position withing the vector-field. 
+            starting_pos = (y,x,z); 
 
-    numT = T1 - T0;
-    TrajectoriesY = zeros( Float32, numT, prod( length.(sampling_region) ) )
-    TrajectoriesX = zeros( Float32, numT, prod( length.(sampling_region) ) )
-    TrajectoriesZ = zeros( Float32, numT, prod( length.(sampling_region) ) )
+            # Recording the starting position in the first timepoints in the trajectory tables for point $pidx. 
+            TrajectoriesY[ 1, pidx ] = Float32( starting_pos[1] )
+            TrajectoriesX[ 1, pidx ] = Float32( starting_pos[2] )
+            TrajectoriesZ[ 1, pidx ] = Float32( starting_pos[3] )
 
+            # Sampling the translation at the current ( starting ) position
+            dY = Float32( scale[1] * U[ starting_pos..., T0 ] )
+            dX = Float32( scale[2] * V[ starting_pos..., T0 ] )
+            dZ = Float32( scale[3] * W[ starting_pos..., T0 ] )
 
-    pidx = 0; 
-    for z in sampling_region[3], x in sampling_region[2], y in sampling_region[1]
+            # moving forward in time, from T0 to T1
+            for t in 2:numT
 
-        pidx += 1; 
+                # New_pos = previous position + translation (dU,dV,dW); 
+                updated_pos = ( TrajectoriesY[t-1, pidx], TrajectoriesX[t-1, pidx], TrajectoriesZ[t-1, pidx] ) .+ ( dY, dX, dZ ); 
 
-        # Placing a new particle inside the vector-field. This is done by 
-        # randomly picking a random position withing the vector-field. 
-        starting_pos = (y,x,z); 
+                # Recording the updated position in the trajectory tables
+                TrajectoriesY[t,pidx] = updated_pos[1]
+                TrajectoriesX[t,pidx] = updated_pos[2]
+                TrajectoriesZ[t,pidx] = updated_pos[3]
 
-        # Recording the starting position in the first timepoints in the trajectory tables for point $pidx. 
-        TrajectoriesY[ 1, pidx ] = Float32( starting_pos[1] )
-        TrajectoriesX[ 1, pidx ] = Float32( starting_pos[2] )
-        TrajectoriesZ[ 1, pidx ] = Float32( starting_pos[3] )
+                # Obtaining the integer index of the updated position
+                int_updated_pos = round.( Int64, updated_pos ); 
 
-        # Sampling the translation at the current ( starting ) position
-        dY = Float32( scale[1] * U[ starting_pos..., T0 ] )
-        dX = Float32( scale[2] * V[ starting_pos..., T0 ] )
-        dZ = Float32( scale[3] * W[ starting_pos..., T0 ] )
+                # If the (integer) updated position is out of the coordinates of the vector field, stop
+                if any( int_updated_pos .< 1 ) || any( int_updated_pos .> dims ) 
+                    TrajectoriesY[ t:end, pidx ] .= TrajectoriesY[ t-1, pidx ]
+                    TrajectoriesX[ t:end, pidx ] .= TrajectoriesX[ t-1, pidx ]
+                    TrajectoriesZ[ t:end, pidx ] .= TrajectoriesZ[ t-1, pidx ]
+                    break
+                end
 
-        # moving forward in time, from T0 to T1
-        for t in 2:numT
-
-            # New_pos = previous position + translation (dU,dV,dW); 
-            updated_pos = ( TrajectoriesY[t-1, pidx], TrajectoriesX[t-1, pidx], TrajectoriesZ[t-1, pidx] ) .+ ( dY, dX, dZ ); 
-
-            # Recording the updated position in the trajectory tables
-            TrajectoriesY[t,pidx] = updated_pos[1]
-            TrajectoriesX[t,pidx] = updated_pos[2]
-            TrajectoriesZ[t,pidx] = updated_pos[3]
-
-            # Obtaining the integer index of the updated position
-            int_updated_pos = round.( Int64, updated_pos ); 
-
-            # If the (integer) updated position is out of the coordinates of the vector field, stop
-            if any( int_updated_pos .< 1 ) || any( int_updated_pos .> dims ) 
-                TrajectoriesY[ t:end, pidx ] .= TrajectoriesY[ t-1, pidx ]
-                TrajectoriesX[ t:end, pidx ] .= TrajectoriesX[ t-1, pidx ]
-                TrajectoriesZ[ t:end, pidx ] .= TrajectoriesZ[ t-1, pidx ]
-                break
+                # Sampling the translation at the (integer) updated position
+                dY = Float32( scale[1] * U[ int_updated_pos..., T0+t-1 ] )
+                dX = Float32( scale[2] * V[ int_updated_pos..., T0+t-1 ] )
+                dZ = Float32( scale[3] * W[ int_updated_pos..., T0+t-1 ] )
             end
-
-            # Sampling the translation at the (integer) updated position
-            dY = Float32( scale[1] * U[ int_updated_pos..., T0+t-1 ] )
-            dX = Float32( scale[2] * V[ int_updated_pos..., T0+t-1 ] )
-            dZ = Float32( scale[3] * W[ int_updated_pos..., T0+t-1 ] )
         end
+
+        return TrajectoriesY, TrajectoriesX, TrajectoriesZ
     end
 
-    return TrajectoriesY, TrajectoriesX, TrajectoriesZ
 end
