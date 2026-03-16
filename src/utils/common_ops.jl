@@ -1,6 +1,5 @@
 """
-    SIMD optimized (faster than Base.findmax) to find the max index of the
-    cross-correlation matrices. Returns a linear index. 
+    SIMD optimized (faster than Base.findmax) to find the max index of the cross-correlation matrices. Returns a linear index. 
 """
 
 function maxidx( a::AbstractArray{<:Real,N} ) where {N}
@@ -49,8 +48,7 @@ end
 
 
 """
-    linaer2cartesian is used when finding coordinates of the maximum peak
-    of the cross-correlation, and to find the vector field coordinates. 
+    linear2cartesian is used when finding coordinates of the maximum peak of the cross-correlation, and to find the vector field coordinates. 
 """
 
 function linear2cartesian( lidx, input_size::Dims{2} )
@@ -69,19 +67,43 @@ function linear2cartesian( lidx, input_size::Dims{3} )
     return (y,x,z)
 end
 
+# cartesian 2 linear is used for the opposite operation, mostly useful for debugging cross-correlation
+function cartesian2linear( cidx::Dims{2}, input_size::Dims{2} )
+    lidx = cidx[1] 
+    lidx += (cidx[2]-1)*input_size[1]
+    return lidx
+end
+
+function cartesian2linear( cidx::Dims{3}, input_size::Dims{3} )
+    lidx = cidx[1] 
+    lidx += (cidx[2]-1)*input_size[1]
+    lidx += (cidx[3]-1)*input_size[1]*input_size[2]
+    return lidx
+end
 
 """
-    USED FOR FINDING THE MAXIUMUM PEAK IN THE CROSS-CORRELATION MATRIX. 
+    USED FOR FINDING THE MAXIMUM PEAK IN THE CROSS-CORRELATION MATRIX. 
 """
 
-function first_peak( cmat::Array{<:AbstractFloat,N} ) where {N}
+function first_peak( 
+    cmat::Array{<:AbstractFloat,N} 
+) where {
+    N
+}
     maxindex = maxidx( cmat )
     maxcartx = linear2cartesian( maxindex, size(cmat) )
     return maxcartx, cmat[ maxindex ]
 end
 
-function first_fullovp_peak( cmat::Array{T,N}, SM, SR_TLF_off, SR_BRB_off ) where {T,N}
-
+function first_fullovp_peak( 
+    cmat::Array{T,N}, 
+    SM, 
+    SR_TLF_off, 
+    SR_BRB_off 
+) where {
+    T,
+    N
+}
     trans_TL = ones(Int64,N) .+ SR_TLF_off[1:N]
     trans_F  = ( N == 2 ) ? 1 : 1 + SR_TLF_off[3]
     trans_BR = ones(Int64,N) .+ 2 .* SM[1:N] .- SR_BRB_off[1:N]; 

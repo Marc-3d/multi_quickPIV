@@ -1,16 +1,16 @@
 """
-    COMPUTING VECTOR FIELD SIZE, AKA THE NUMBER OF INTERROGATOIN AREAS THAT FIT IN EACH DIMENSION
+    COMPUTING VECTOR FIELD SIZE, AKA THE NUMBER OF INTERROGATION REGIONS THAT FIT IN EACH DIMENSION
     OF THE INPUT.
 """
 
 function get_vectorfield_size( input_size::Dims{N}, pivparams::PIVParameters, scale=1 ) where {N}
 
-    return get_vectorfield_size( input_size, _isize( pivparams, scale ), _step(  pivparams, scale ) )
+    return get_vectorfield_size( input_size, _isize( pivparams ), _step(  pivparams ) )
 end
 
-function get_vectorfield_size( input_size::Dims{N}, isize::Dims{N}, step::Dims{N} ) where {N}
-    
-    return length.( StepRange.( 1, step, input_size .- isize .+ 1 ) );
+function get_vectorfield_size( input_size::Dims{N}, inter_size::Dims{N}, inter_step::Dims{N} ) where { N }  
+
+    return length.( StepRange.( 1, inter_step, input_size .- inter_size .+ 1 ) );
 end
 
 
@@ -22,12 +22,11 @@ end
     3D VFs ARE STORED IN A 4D MATRIX OF SIZE (3,VF_HEIGHT,VF_WIDTH,VF_DEPTH): U = VF[1,:,:,:], 
     V = VF[2,:,:,:], W = VF[3,:,:,:].
 """
-function allocate_outputs( input_size::Dims{N}, pivparams::PIVParameters, precision=32 ) where {N}
+function allocate_outputs( input_size::Dims{N}, pivparams::PIVParameters, ccr_type=Float32 ) where {N}
 
-    VFsize = get_vectorfield_size( input_size, pivparams, 1 );
-    VFtype = ( precision == 32 ) ? Float32 : Float64; 
-    VF     = zeros( VFtype, N, VFsize... );
-    SN     = ( pivparams.computeSN ) ? zeros( VFtype, VFsize... ) : nothing;
+    VFsize = get_vectorfield_size( input_size, pivparams );
+    VF     = zeros( ccr_type, N, VFsize... );
+    SN     = ( pivparams.computeSN ) ? zeros( ccr_type, VFsize... ) : nothing;
     return VF, SN
 end
 
@@ -36,11 +35,16 @@ end
     FINDING THE TLF (TOP-LEFT-FRONT) AND BRB (BOTTOM-RIGTH-BACK) COORDINATES OF THE "i"th
     INTERROGATION REGION. 
 """
-function get_interrogation_coordinates( vf_idx::Int, vf_size::Dims{N}, input_size::Dims{N}, scale, pivparams::PIVParameters ) where {N}
-
+function get_interrogation_coordinates( 
+    vf_idx::Int,             # linear index within the vector field of the current interrogation region
+    vf_size::Dims{N},        # size of the vector field
+    pivparams::PIVParameters # relevant piv parameters: interSize, step
+) where {
+    N
+}
     vf_coords = linear2cartesian( vf_idx, vf_size ); 
-    IR_TLF    = ones(Int, N) .+ ( vf_coords .- 1 ) .* _step( pivparams, scale );
-    IR_BRB    = IR_TLF .+ _isize( pivparams, scale ) .- 1; 
+    IR_TLF    = ones(Int, N) .+ ( vf_coords .- 1 ) .* _step( pivparams );
+    IR_BRB    = IR_TLF .+ _isize( pivparams ) .- 1; 
 
     return IR_TLF, IR_BRB
 end
@@ -52,15 +56,21 @@ end
     INPUT ARRAYS. THE OUT-OF-BOUND EXTENDS NEED TO BE CONSIDERED WHEN COPYING THE SEARCH
     REGION INTO THE PADDED ARRAY AND WHEN FINDING THE MAXIMUM PEAK. 
 """
-function get_search_coordinates( vf_idx::Int, vf_size::Dims{N}, input_size::Dims{N}, scale, pivparams::PIVParameters ) where {N}
-
-    vf_coords  = linear2cartesian( vf_idx, vf_size ); 
-    IR_TLF     = ones(Int, N) .+ ( vf_coords .- 1 ) .*  _step( pivparams, scale );
-    IR_BRB     = IR_TLF .+  _isize( pivparams, scale ) .- 1; 
-    SR_TLF     = max.( 1, IR_TLF .- _smarg( pivparams, scale ) ); 
-    SR_BRB     = min.( input_size, IR_BRB .+ _smarg( pivparams, scale ) );
-    SR_TLF_off = abs.( min.( 0, IR_TLF .- _smarg( pivparams, scale ) .- 1 ) );
-    SR_BRB_off = abs.( min.( 0, input_size .- ( IR_BRB .+ _smarg( pivparams,scale) ) ) ); 
+function get_search_coordinates( 
+    vf_idx::Int,
+    vf_size::Dims{N},
+    input_size::Dims{N},
+    pivparams::PIVParameters,
+    displacement::NTuple{N,Int}=Tuple(zeros(Int,N))
+) where {
+    N
+}
+    IR_TLF, IR_BRB = get_interrogation_coordinates( vf_idx, vf_size, pivparams )
+    SM         = _smarg( pivparams )
+    SR_TLF     = max.(      1    , IR_TLF .- SM .+ displacement ); 
+    SR_BRB     = min.( input_size, IR_BRB .+ SM  .+ displacement );
+    SR_TLF_off = abs.( min.( 0,   IR_TLF   .- (    SM  .+ displacement .- 1   ) ) );
+    SR_BRB_off = abs.( min.( 0, input_size .- ( IR_BRB .+ SM  .+ displacement ) ) ); 
 
     return SR_TLF, SR_BRB, SR_TLF_off, SR_BRB_off
 end
@@ -69,12 +79,9 @@ end
 """
     RETRUNS A TUPLE WITH ALL COORDINATE INFORMATION AOUT THE INTERROGATION AND SEARCH REGIONS.
 """
-function get_interrogation_and_search_coordinates( vf_idx::Int, vf_size::Dims{N}, input_size::Dims{N}, scale, pivparams::PIVParameters ) where {N}
+function get_interrogation_and_search_coordinates( vf_idx::Int, vf_size::Dims{N}, input_size::Dims{N}, pivparams::PIVParameters, displacement::NTuple{N,Int}=Tuple(zeros(Int,N)) ) where {N}
 
-    IR_TLF, IR_BRB = get_interrogation_coordinates( vf_idx, vf_size, input_size, scale, pivparams )
-    SR_TLF, SR_BRB, SR_TLF_off, SR_BRB_off = get_search_coordinates( vf_idx, vf_size, input_size, scale, pivparams )
-
-    return ( IR_TLF, IR_BRB, SR_TLF, SR_BRB, SR_TLF_off, SR_BRB_off )
+    return ( get_interrogation_coordinates( vf_idx, vf_size, pivparams )..., get_search_coordinates( vf_idx, vf_size, input_size, pivparams )... )
 end
 
 
@@ -89,22 +96,34 @@ function copy_inter_region!( pad_F, F, coord_data::NTuple{N,T} ) where {N,T}
     copy_inter_region!( pad_F, F, coord_data[1], coord_data[2] )
 end
 
-function copy_inter_region!( pad_F, F, IR_TLF, IR_BRB )
+function copy_inter_region!( 
+    pad_F,  # padded input_1 to CCR
+    F,      # user-provided input_1 
+    IR_TLF, # top-left-front corner of interrogation region
+    IR_BRB  # bottom-right-back corner of interrogation region
+)
     pad_F .= 0.0; 
     size_F = IR_BRB .- IR_TLF .+ 1; 
     pad_F[ Base.OneTo.(size_F)... ] .= F[ UnitRange.(IR_TLF,IR_BRB)... ]
+    return nothing
 end
 
 function copy_search_region!( pad_G, G, coord_data::NTuple{N,T} ) where {N,T}
     copy_search_region!( pad_G, G, coord_data[3], coord_data[4], coord_data[5] )
 end
 
-function copy_search_region!( pad_G, G, SR_TLF, SR_BRB, SR_TLF_offset )
-
+function copy_search_region!( 
+    pad_G,  # padded input_2 to CCR
+    G,      # user-provided input_1 
+    SR_TLF, # top-left-front corner of search region
+    SR_BRB, # bottom-right-back corner of search region
+    SR_TLF_offset # out-of-bound correction for TLF corner of search region
+)
     pad_G .= 0.0
     size_G = SR_BRB .- SR_TLF .+ 1; 
     pad_coords = UnitRange.( 1 .+ SR_TLF_offset, size_G .+ SR_TLF_offset );
     pad_G[ pad_coords... ] .= G[ UnitRange.( SR_TLF, SR_BRB )... ]; 
+    return nothing
 end
 
 
@@ -112,26 +131,27 @@ end
     USED FOR FILTERING INTERROGATION REGIONS THAT BELONG TO THE BACKGROUND. GENERALLY,
     THOSE WITH A VERY LOW MEAN INTENSITY CORRESPOND TO BACKGROUND REGIONS.
 """
-function skip_inter_region( input, IR_TLF, IR_BRB, pivparams::PIVParameters )
+function skip_inter_region( input, IR_TLF, IR_BRB, filtFun, threshold )
 
-    if pivparams.threshold < 0
+    inter_view = view( input, UnitRange.( IR_TLF, IR_BRB )... ); 
+    return filtFun( inter_view ) < threshold
+end
+
+function skip_inter_region( input, IR_TLF, IR_BRB, pivparams::PIVParameters )
+    if ( pivparams.threshold < 0 )
         return false
     else
-        inter_view = view( input, UnitRange.( IR_TLF, IR_BRB )... ); 
-        return pivparams.filtFun( inter_view ) < pivparams.threshold
+        return skip_inter_region( input, IR_TLF, IR_BRB, pivparams.filtFun, pivparams.threshold )
     end
 end
 
 function skip_inter_region( input, mask, IR_TLF, IR_BRB, pivparams::PIVParameters )
-
     skip = false; 
     if pivparams.threshold > 0
-        inter_view = view( input, UnitRange.( IR_TLF, IR_BRB )... ); 
-        skip = pivparams.filtFun( inter_view ) < pivparams.threshold
+        skip = skip_inter_region( input, IR_TLF, IR_BRB, pivparams.filtFun, pivparams.threshold )
     end
     if pivparams.mask_threshold > 0
-        mask_view = view( mask, UnitRange.( IR_TLF, IR_BRB )... ); 
-        skip = skip || pivparams.mask_filtFun( mask_view ) < pivparams.mask_threshold
+        skip = skip || skip_inter_region( mask, IR_TLF, IR_BRB, pivparams.mask_filtFun, pivparams.mask_threshold )
     end
     return skip
 end
@@ -213,12 +233,14 @@ function update_vectorfield!( VF, counts, displacement, vf_idx, input_size::Dims
     counts[vf_coords...] += 1; 
 end
 
-function interpolate_vectorfield!( VF, counts )
-    for n in 1:size(VF,1)
-        VF[n,UnitRange.(1,size(VF)[2:end])...] ./= counts
+function update_vectorfield!( VF, displacement, vf_idx, input_size::Dims{N}, pivparams::PIVParameters, scale ) where {N}
+
+    vf_coords = get_vf_coords( vf_idx, input_size, pivparams, scale )
+    #println( vf_idx, vf_coords )
+    for n in 1:N
+        VF[n,vf_coords...] = displacement[n]
     end
 end
-
 
 """
     GAUSSIAN SUBPIXEL APPROXIMATION.
@@ -342,4 +364,38 @@ function compute_SN( tmp_data, SM::Dims{N}, SR_TLF_off, SR_BRB_off ) where {N}
     avg  = ( sum( corr[ fovp... ] ) - max )/( len - 1 )
 
     return max / avg; 
+end
+
+"""
+    For debugging cross-correlation
+"""
+function compute_CCR_at_VF_coords( 
+    input1::AbstractArray{T,N}, 
+    input2, 
+    mask, 
+    pivparams, 
+    vf_coords; 
+    scale=1, precision=64 
+) where {
+    T, 
+    N
+}
+    pivparams.ndims = N;
+
+    size1      = size( input1 ); 
+    corr_alg   = mask_NSQECC(); 
+    tmp_data   = allocate_tmp_data( corr_alg, scale, pivparams, precision )
+    vf_size    = get_vectorfield_size( size1, pivparams, scale )
+	VF, SN     = allocate_outputs( size1, pivparams, precision )
+    vf_idx     = cartesian2linear( vf_coords, vf_size )
+    coord_data = get_interrogation_and_search_coordinates( vf_idx, vf_size, size1, scale, pivparams ); 
+    skip_inter_region( input1, mask, coord_data[1], coord_data[2], pivparams ) && ( println( "IR center outside of mask. Skipping it." ); return; )
+
+    prepare_inputs!( corr_alg, input1, input2, mask, coord_data, tmp_data );
+    crosscorrelation!( corr_alg, scale, pivparams, tmp_data ); 
+
+    # full overlapping translations when using unpadded PIV (which should be always)
+    fovp = UnitRange.( 1, 2 .* _smarg( pivparams, scale ) .+ 1 ); 
+
+    return tmp_data[1][ fovp... ]
 end

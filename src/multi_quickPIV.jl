@@ -36,18 +36,19 @@ end
 	want to run multithreaded PIV from a jupyter notebook, follow the instructions in this github issue:
 	    https://github.com/JuliaLang/IJulia.jl/issues/882#issuecomment-579520246 
 """
-function PIV_CPU( input1::AbstractArray{<:Real,N}, 
-	              input2::AbstractArray{<:Real,N}, 
-	              pivparams::PIVParameters, 
-				  precision=32
-				) where {N}
+function PIV_CPU( 
+	input1::AbstractArray{<:Real,N}, 
+	input2::AbstractArray{<:Real,N}, 
+	pivparams::PIVParameters, 
+	precision=32
+) where {N}
 
 	size1, size2 = size(input1), size(input2);
     @assert all( size1 .== size2 ) "PIV inputs need to have the same size."
 
     pivparams.ndims = N;
 
-    # PREALLOCATING RESULTS: VECTOR FIELD + SIGNAL-TO-NOISE MATRIX
+    # PRE-ALLOCATING RESULTS: VECTOR FIELD + SIGNAL-TO-NOISE MATRIX
 	VF, SN = allocate_outputs( size1, pivparams, precision )
 
 	# MULTISCALE LOOP
@@ -61,10 +62,12 @@ function PIV_CPU( input1::AbstractArray{<:Real,N},
         for vf_idx in 1:prod( vf_size )
             
         	# COMPUTING COORDINATES FOR THE CURRENT PAIR OF INTERROGATION/SEARCH REGION
-			coord_data = get_interrogation_and_search_coordinates( vf_idx, vf_size, size1, scale, pivparams ); 
-
+			coord_data = get_interrogation_and_search_coordinates( vf_idx, vf_size, size1, scale, pivparams );
+			
 			# (OPTIONAL) FILTERING OF INTERROGATION REGIONS IF pivparams.filtFun(IR) < pivparams.threshold
 			skip_inter_region( input1, coord_data[1], coord_data[2], pivparams ) && ( continue; )
+
+			# (MULTIPASS) DISPLACING SEARCH REGION BY PREVIOUSLY COMPUTED DISPLACEMENTS AT A LARGER SCALE
 
 			# COPYING INTERROGATION/SEARCH REGIONS INTO PADDED ARRAYS FOR FFT
 			prepare_inputs!( pivparams.corr_alg, input1, input2, coord_data, tmp_data );
@@ -92,12 +95,13 @@ function PIV_CPU( input1::AbstractArray{<:Real,N},
 end
 
 # MASKED PIV
-function PIV_CPU_masked( input1::AbstractArray{<:Real,N}, 
-						 input2::AbstractArray{<:Real,N}, 
-						 mask::AbstractArray{<:Real,N}, 
-						 pivparams::PIVParameters; 
-						 precision=32
-					   ) where {N}
+function PIV_CPU_masked( 
+	input1::AbstractArray{<:Real,N}, 
+	input2::AbstractArray{<:Real,N}, 
+	mask::AbstractArray{<:Real,N}, 
+	pivparams::PIVParameters; 
+	precision=32
+) where {N}
 
 	size1, size2, size3 = size(input1), size(input2), size( mask );
     @assert all( size1 .== size2 .== size3 ) "PIV inputs need to have the same size."
@@ -149,13 +153,14 @@ function PIV_CPU_masked( input1::AbstractArray{<:Real,N},
 end
 
 # MASKED PIV
-function PIV_CPU_masked( input1::AbstractArray{<:Real,N}, 
-						 input2::AbstractArray{<:Real,N}, 
-						 mask_VF::AbstractArray{<:Real,N}, 
-						 mask_IA::AbstractArray{<:Real,N},
-						 pivparams::PIVParameters; 
-						 precision=32
-					   ) where {N}
+function PIV_CPU_masked( 
+	input1::AbstractArray{<:Real,N}, 
+	input2::AbstractArray{<:Real,N}, 
+	mask_VF::AbstractArray{<:Real,N}, 
+	mask_IA::AbstractArray{<:Real,N},
+	pivparams::PIVParameters; 
+	precision=32
+) where {N}
 
 	size1, size2, size3 = size(input1), size(input2), size( mask_IA );
     @assert all( size1 .== size2 .== size3 ) "PIV inputs need to have the same size."
@@ -243,5 +248,7 @@ end
 
 # include("./additional_analyses/utils_patch_matching_across_stacks.jl")
 # include("./additional_analyses/patch_matching_across_stack.jl")
+include("./additional_analyses/ccr_analysis.jl")
+include("./additional_analyses/multi_pass_test.jl")
 
 end 

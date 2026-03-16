@@ -1,3 +1,6 @@
+# this type reflects the type of the variables needed for performing in-place NSQECC CCR. See "allocate_tmp_data" for more details.
+mask_NSQECC_tmp{T,N} = Tuple{Array{T,N},Array{T,N},Array{T,N},Array{T,N},Ptr{FFTW.fftw_plan_struct},Ptr{FFTW.fftw_plan_struct},NTuple{N,Int}};
+
 """
   This particular implementation corresponds to the masked NSQECC, where
   the user can provide a mask for the interrogation region, and only the
@@ -8,13 +11,8 @@
   interrogation input. 
 """
 
-function crosscorrelation!( ::mask_NSQECC, 
-                             scale, 
-                             pivparams::PIVParameters, 
-                             tmp_data
-                          )
-
-  _mask_NSQECC!( tmp_data..., scale, pivparams )  
+function crosscorrelation!( ::mask_NSQECC, tmp_data::mask_NSQECC_tmp, pivparams::PIVParameters )
+  _mask_NSQECC!( tmp_data..., pivparams )
   return nothing
 end
 
@@ -29,37 +27,29 @@ end
     [6] FFT_plan_inverse   : inverse c2r FFT plan ( inplace )
     [7] csize              : we keep track of the cross-correlation pad, after padding
 """
-
-function allocate_tmp_data( ::mask_NSQECC, scale, pivparams::PIVParameters, precision=32 )
-
-  return allocate_tmp_data( mask_NSQECC(), _isize(pivparams,scale), _ssize(pivparams,scale), 
-                            precision=precision, 
-                            unpadded=pivparams.unpadded, 
-                            good_pad=pivparams.good_pad, 
-                            odd_pad=pivparams.odd_pad
-                          )
+function allocate_tmp_data( ::mask_NSQECC, pivparams::PIVParameters, T=Float32 )
+  return allocate_tmp_data( mask_NSQECC(), _isize(pivparams), _ssize(pivparams),  T(0.0), pivparams.unpadded, pivparams.good_pad, pivparams.odd_pad )
 end
 
-function allocate_tmp_data( ::mask_NSQECC, 
-                            isize::Dims{N}, 
-                            ssize::Dims{N}; 
-                            precision=32,
-                            unpadded=true,
-                            good_pad=false,
-                            odd_pad=true
-                          ) where {N}
-
-  csize1, r2c_pad, corr_pad = compute_csize_and_paddings( isize, ssize, 
-                                                          unpadded=unpadded, 
-                                                          good_pad=good_pad, 
-                                                          odd_pad=odd_pad )
+function allocate_tmp_data( 
+  ::mask_NSQECC, 
+  isize::Dims{N}, 
+  ssize::Dims{N},
+  ccr_type::T,
+  unpadded=true,
+  good_pad=false,
+  odd_pad=true
+)::mask_NSQECC_tmp{T,N} where {
+  T,
+  N
+}
+  csize1, r2c_pad, corr_pad = compute_csize_and_paddings( isize, ssize, unpadded=unpadded, good_pad=good_pad, odd_pad=odd_pad )
 
   pad_csize   = csize1 .+ r2c_pad;
-  pad_ctype   = ( precision == 32 ) ? Float32 : Float64
-  pad_inter   = zeros( pad_ctype, pad_csize ); 
-  pad_search  = zeros( pad_ctype, pad_csize ); 
-  pad_search2 = zeros( pad_ctype, pad_csize );
-  pad_mask    = zeros( pad_ctype, pad_csize );
+  pad_inter   = zeros( T, pad_csize ); 
+  pad_search  = zeros( T, pad_csize ); 
+  pad_search2 = zeros( T, pad_csize );
+  pad_mask    = zeros( T, pad_csize );
   r2c_plan    = inplace_r2c_plan( pad_inter , csize1 );  
   c2r_plan    = inplace_c2r_plan( pad_search, csize1 );
 
@@ -73,15 +63,12 @@ end
   which will allow us to compute the L2 errors efficiently for each translation.
 """
 
-function prepare_inputs!( ::mask_NSQECC, F, G, mask, 
-                                         coord_data,
-                                         tmp_data )
+function prepare_inputs!( ::mask_NSQECC, tmp_data::mask_NSQECC_tmp{T,N}, input1::AbstractArray{<:Real,N}, input2::AbstractArray{<:Real,N}, mask::AbstractArray{<:Real,N}, coord_data ) where { T,N }
 
-  copy_inter_masked!(   tmp_data[1], F, mask, coord_data );   
-  copy_search_region!(  tmp_data[2],    G   , coord_data );   
-  copy_inter_region!(   tmp_data[3],  mask  , coord_data );  
-  copy_search_squared!( tmp_data[4],    G   , coord_data );
-
+  copy_inter_masked!(   tmp_data[1], input1, mask, coord_data );  
+  copy_inter_region!(   tmp_data[3],     mask    , coord_data );   
+  copy_search_region!(  tmp_data[2],    input2   , coord_data );   
+  copy_search_squared!( tmp_data[4],    input2   , coord_data );
   return nothing
 end
 
@@ -122,24 +109,26 @@ end
 
 """
 
-function _mask_NSQECC!( pad_maskF, pad_G, 
-                        pad_mask, pad_G2, 
-                        r2c, c2r, csize, 
-                        scale, pivparams::PIVParameters )
+function _mask_NSQECC!( pad_maskF, pad_G, pad_mask, pad_G2, r2c, c2r, csize, pivparams::PIVParameters )
                         
-  _mask_NSQECC!( pad_maskF, pad_G, 
-                 pad_mask, pad_G2,
-                 r2c, c2r, csize,
-                 _isize(pivparams,scale), _ssize(pivparams,scale), 
-                 pivparams.ovp_th )
+  _mask_NSQECC!( pad_maskF, pad_G, pad_mask, pad_G2, r2c, c2r, csize, _isize(pivparams), _ssize(pivparams), pivparams.ovp_th )
 end
 
-function _mask_NSQECC!( pad_maskF::Array{T,N}, pad_G::Array{T,N}, 
-                        pad_mask::Array{T,N}, pad_G2::Array{T,N}, 
-                        r2c, c2r, csize, 
-                        size_F::Dims{N}, size_G::Dims{N},
-                        ovp_th=0.5 ) where {T<:AbstractFloat,N}
-
+function _mask_NSQECC!( 
+  pad_maskF::Array{T,N}, 
+  pad_G::Array{T,N}, 
+  pad_mask::Array{T,N}, 
+  pad_G2::Array{T,N}, 
+  r2c, 
+  c2r, 
+  csize, 
+  size_F::Dims{N}, 
+  size_G::Dims{N},
+  ovp_th=0.5 
+) where {
+  T<:AbstractFloat,
+  N
+}
     # COMPUTING THE TOTAL NUMBER OF 1'S IN THE MASK
     maxN  = 0
     sumF2 = 0.0
