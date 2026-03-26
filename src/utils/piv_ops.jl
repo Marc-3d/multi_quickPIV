@@ -223,23 +223,23 @@ end
 """
     TODO: 
 """
-function update_vectorfield!( VF, counts, displacement, vf_idx, input_size::Dims{N}, pivparams::PIVParameters, scale ) where {N}
+function update_vectorfield!( VF, counts, displacement, vf_idx, input_size::Dims{N}, pivparams::PIVParameters, scale=1 ) where {N}
 
-    vf_coords = get_vf_coords( vf_idx, input_size, pivparams, scale )
-    #println( vf_idx, vf_coords )
+    vf_coords = get_vf_coords( vf_idx, input_size, pivparams )
     for n in 1:N
         VF[n,vf_coords...] = displacement[n]
     end
     counts[vf_coords...] += 1; 
+    return nothing
 end
 
-function update_vectorfield!( VF, displacement, vf_idx, input_size::Dims{N}, pivparams::PIVParameters, scale ) where {N}
+function update_vectorfield!( VF, displacement, vf_idx, input_size::Dims{N}, pivparams::PIVParameters, scale=1 ) where {N}
 
-    vf_coords = get_vf_coords( vf_idx, input_size, pivparams, scale )
-    #println( vf_idx, vf_coords )
+    vf_coords = get_vf_coords( vf_idx, input_size, pivparams )
     for n in 1:N
         VF[n,vf_coords...] = displacement[n]
     end
+    return nothing
 end
 
 """

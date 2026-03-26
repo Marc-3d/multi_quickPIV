@@ -27,20 +27,20 @@ end
     [6] FFT_plan_inverse   : inverse c2r FFT plan ( inplace )
     [7] csize              : we keep track of the cross-correlation pad, after padding
 """
-function allocate_tmp_data( ::mask_NSQECC, pivparams::PIVParameters, T=Float32 )
-  return allocate_tmp_data( mask_NSQECC(), _isize(pivparams), _ssize(pivparams),  T(0.0), pivparams.unpadded, pivparams.good_pad, pivparams.odd_pad )
+function allocate_tmp_data( ::mask_NSQECC, pivparams::PIVParameters, precision::DataType=Float64 )
+  return allocate_tmp_data( mask_NSQECC(), _isize(pivparams), _ssize(pivparams), precision(1.0), pivparams.unpadded, pivparams.good_pad, pivparams.odd_pad )
 end
 
 function allocate_tmp_data( 
   ::mask_NSQECC, 
   isize::Dims{N}, 
   ssize::Dims{N},
-  ccr_type::T,
+  precision::T,
   unpadded=true,
   good_pad=false,
   odd_pad=true
 )::mask_NSQECC_tmp{T,N} where {
-  T,
+  T <: AbstractFloat,
   N
 }
   csize1, r2c_pad, corr_pad = compute_csize_and_paddings( isize, ssize, unpadded=unpadded, good_pad=good_pad, odd_pad=odd_pad )
@@ -63,8 +63,17 @@ end
   which will allow us to compute the L2 errors efficiently for each translation.
 """
 
-function prepare_inputs!( ::mask_NSQECC, tmp_data::mask_NSQECC_tmp{T,N}, input1::AbstractArray{<:Real,N}, input2::AbstractArray{<:Real,N}, mask::AbstractArray{<:Real,N}, coord_data ) where { T,N }
-
+function prepare_inputs!( 
+  ::mask_NSQECC, 
+  tmp_data::mask_NSQECC_tmp{T,N}, 
+  input1::AbstractArray{<:Real,N}, 
+  input2::AbstractArray{<:Real,N}, 
+  mask::AbstractArray{<:Real,N}, 
+  coord_data 
+) where { 
+  T,
+  N 
+}
   copy_inter_masked!(   tmp_data[1], input1, mask, coord_data );  
   copy_inter_region!(   tmp_data[3],     mask    , coord_data );   
   copy_search_region!(  tmp_data[2],    input2   , coord_data );   

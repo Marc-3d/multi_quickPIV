@@ -4,6 +4,7 @@ include("piv_parameters.jl")
 include("./utils/common_ops.jl")	
 include("./utils/piv_ops.jl")
 include("./utils/fft_ops.jl")
+include("./utils/zncc_ops.jl")
 include("./utils/nsqecc_ops.jl")
 include("./utils/masked_nsqecc_ops.jl")
 include("./crosscorrelation_algorithms/fftcc.jl")
@@ -13,17 +14,17 @@ include("./crosscorrelation_algorithms/mask_nsqecc.jl")
 include("./postprocessing/postprocessing.jl")
 
 # STANDARD PIV 
-function PIV( input1, input2, pivparams::PIVParameters=setPIVParameters(); precision=64 )
+function PIV( input1, input2, pivparams::PIVParameters=setPIVParameters(); precision=Float64 )
 	return PIV_CPU( input1, input2, pivparams, precision  )
 end
 
 # MASKED PIV
-function PIV( input1, input2, mask, pivparams::PIVParameters=setPIVParameters(); precision=64 )
+function PIV( input1, input2, mask, pivparams::PIVParameters=setPIVParameters(); precision=Float64 )
 	return PIV_CPU_masked( input1, input2, mask, pivparams, precision=precision  )
 end
 
 # DOUBLE MASKED PIV
-function PIV( input1, input2, mask_VF, mask_IA, pivparams::PIVParameters=setPIVParameters(); precision=64 )
+function PIV( input1, input2, mask_VF, mask_IA, pivparams::PIVParameters=setPIVParameters(); precision=Float64 )
 	return PIV_CPU_masked( input1, input2, mask_VF, mask_IA, pivparams, precision=precision  )
 end
 
@@ -40,29 +41,29 @@ function PIV_CPU(
 	input1::AbstractArray{<:Real,N}, 
 	input2::AbstractArray{<:Real,N}, 
 	pivparams::PIVParameters, 
-	precision=32
+	precision=Float32
 ) where {N}
 
-	size1, size2 = size(input1), size(input2);
-    @assert all( size1 .== size2 ) "PIV inputs need to have the same size."
+	size_inp1, size_inp2 = size(input1), size(input2);
+    @assert all( size_inp1 .== size_inp2 ) "PIV inputs need to have the same size."
 
     pivparams.ndims = N;
 
     # PRE-ALLOCATING RESULTS: VECTOR FIELD + SIGNAL-TO-NOISE MATRIX
-	VF, SN = allocate_outputs( size1, pivparams, precision )
+	VF, SN = allocate_outputs( size_inp1, pivparams, precision )
 
+	# TODO: replace by the new multi-pass code
 	# MULTISCALE LOOP
 	for scale in pivparams.multipass:-1:1
 
         # PREALLOCATING CROSS-CORRELATION DATA
-        tmp_data = allocate_tmp_data( pivparams.corr_alg, scale, pivparams, precision )
-		vf_size  = get_vectorfield_size( size1, pivparams, scale )
-		counts   = zeros( UInt16, vf_size );
+        tmp_data = allocate_tmp_data( pivparams.corr_alg, pivparams, precision )
+		vf_size  = get_vectorfield_size( size_inp1, pivparams )
 
         for vf_idx in 1:prod( vf_size )
             
         	# COMPUTING COORDINATES FOR THE CURRENT PAIR OF INTERROGATION/SEARCH REGION
-			coord_data = get_interrogation_and_search_coordinates( vf_idx, vf_size, size1, scale, pivparams );
+			coord_data = get_interrogation_and_search_coordinates( vf_idx, vf_size, size_inp1, pivparams );
 			
 			# (OPTIONAL) FILTERING OF INTERROGATION REGIONS IF pivparams.filtFun(IR) < pivparams.threshold
 			skip_inter_region( input1, coord_data[1], coord_data[2], pivparams ) && ( continue; )
@@ -70,16 +71,16 @@ function PIV_CPU(
 			# (MULTIPASS) DISPLACING SEARCH REGION BY PREVIOUSLY COMPUTED DISPLACEMENTS AT A LARGER SCALE
 
 			# COPYING INTERROGATION/SEARCH REGIONS INTO PADDED ARRAYS FOR FFT
-			prepare_inputs!( pivparams.corr_alg, input1, input2, coord_data, tmp_data );
+			prepare_inputs!( pivparams.corr_alg, tmp_data, input1, input2, coord_data );
 
 			# COMPUTING CROSS-CORRELATION MATRIX
-			crosscorrelation!( pivparams.corr_alg, scale, pivparams, tmp_data ); 
+			crosscorrelation!( pivparams.corr_alg, tmp_data, pivparams ); 
 
 			# COMPUTING DISPLACEMENT FROM MAXIMUM PEAK OF CC + GAUSSIAN REFINEMENT
             displacement = gaussian_displacement( tmp_data[1], scale, pivparams, coord_data, tmp_data )
 
             # UPDATING THE VECTOR FIELD
-            update_vectorfield!( VF, counts, displacement, vf_idx, size1, pivparams, scale )
+            update_vectorfield!( VF, displacement, vf_idx, size_inp1, pivparams )
             
             # (OPTIONAL) COMPUTING SIGNAL-TO-NOISE RATIO
             if scale == 1 && pivparams.computeSN

@@ -1,3 +1,5 @@
+FFTCC_tmp{T,N} = Tuple{Array{T,N},Array{T,N},Ptr{FFTW.fftw_plan_struct},Ptr{FFTW.fftw_plan_struct},NTuple{N,Int}};
+
 """ 
   This function computes unnormalized cross-correlation in the frequency domain.
   It is the fastest  form of cross-correlation, but also the least robust. It is 
@@ -7,8 +9,8 @@
   "bright dots on a black background".
 """
 
-function crosscorrelation!( ::FFTCC, scale, pivparams::PIVParameters, tmp_data )
-  _FFTCC!( tmp_data..., scale, pivparams );
+function crosscorrelation!( ::FFTCC, tmp_data::FFTCC_tmp, pivparams::PIVParameters )
+  _FFTCC!( tmp_data..., pivparams );
   return nothing
 end
 
@@ -21,34 +23,27 @@ end
     [5] csize              : we keep track of the cross-correlation pad, after padding
 """
 
-function allocate_tmp_data( ::FFTCC, scale, pivparams::PIVParameters, precision=32 )
-
-    return allocate_tmp_data( FFTCC(), _isize(pivparams,scale), _ssize(pivparams,scale),
-                              precision = precision, 
-                              unpadded  = pivparams.unpadded, 
-                              good_pad  = pivparams.good_pad, 
-                              odd_pad   = pivparams.odd_pad
-                             )
+function allocate_tmp_data( ::FFTCC, pivparams::PIVParameters, precision::DataType=Float64 )
+    return allocate_tmp_data( FFTCC(), _isize(pivparams), _ssize(pivparams), precision(1.0), pivparams.unpadded, pivparams.good_pad, pivparams.odd_pad )
 end
 
-function allocate_tmp_data( ::FFTCC, 
-                            isize::Dims{N},   # size of interrogation regions
-                            ssize::Dims{N};   # size of search regions
-                            precision=32,     # 32 or 64, for Float32 or Float64
-                            unpadded=true,    # size padded arrays to "max( N, M )" instead of "N + M - 1".
-                            good_pad=true,    # add extra padding to easy factorizatoin and speed up FFT.
-                            odd_pad=false     # whether or not to round padded dimensions to even size
-                          ) where {N}
-
-  csize, r2c_pad, corr_pad = compute_csize_and_paddings( isize, ssize, 
-                                                         unpadded=unpadded, 
-                                                         good_pad=good_pad, 
-                                                         odd_pad=odd_pad )
+function allocate_tmp_data( 
+  ::FFTCC, 
+  inter_size::Dims{N},   # size of interrogation regions
+  search_size::Dims{N},   # size of search regions
+  precision::T,     # Float32 or Float64
+  unpadded=true,    # size padded arrays to "max( N, M )" instead of "N + M - 1".
+  good_pad=true,    # add extra padding to easy factorizatoin and speed up FFT.
+  odd_pad=false     # whether or not to round padded dimensions to even size
+)::FFTCC_tmp{T,N} where {
+  T <: AbstractFloat,
+  N
+}
+  csize, r2c_pad, corr_pad = compute_csize_and_paddings( inter_size, search_size, unpadded=unpadded, good_pad=good_pad, odd_pad=odd_pad )
 
   pad_csize  = csize .+ r2c_pad;
-  pad_ctype  = ( precision == 32 ) ? Float32 : Float64; 
-  pad_inter  = zeros( pad_ctype, pad_csize );
-  pad_search = zeros( pad_ctype, pad_csize );
+  pad_inter  = zeros( T, pad_csize );
+  pad_search = zeros( T, pad_csize );
   r2c_plan   = inplace_r2c_plan( pad_inter , csize );
   c2r_plan   = inplace_c2r_plan( pad_search, csize );
 
@@ -60,9 +55,19 @@ end
   Copying the interrogation and search regions into the padded arrays for the FFTs.
 """
 
-function prepare_inputs!( ::FFTCC, F, G, coord_data, tmp_data )
-  copy_inter_region!(  tmp_data[1], F, coord_data );  
-  copy_search_region!( tmp_data[2], G, coord_data );   
+function prepare_inputs!( 
+  ::FFTCC, 
+  tmp_data::FFTCC_tmp{T,N}, 
+  input1::AbstractArray{<:Real,N}, 
+  input2::AbstractArray{<:Real,N}, 
+  coord_data
+) where {
+  T, 
+  N
+}
+  copy_inter_region!(  tmp_data[1], input1, coord_data );  
+  copy_search_region!( tmp_data[2], input2, coord_data );  
+  return nothing 
 end
 
 
@@ -89,16 +94,20 @@ end
   
 """
 
-function _FFTCC!( pad_F::Array{T,N}, pad_G::Array{T,N}, r2c_plan, c2r_plan, csize, scale, pivparams::PIVParameters ) where {T<:AbstractFloat, N}
+function _FFTCC!( pad_F::Array{T,N}, pad_G::Array{T,N}, r2c_plan, c2r_plan, csize, pivparams::PIVParameters ) where {T<:AbstractFloat, N}
   return _FFTCC!( pad_F, pad_G, r2c_plan, c2r_plan, csize ); 
 end
 
-function _FFTCC!( pad_F::Array{T,N}, # padded interrogation region
-                  pad_G::Array{T,N}, # padded search region
-                  r2c_plan,          # forward inplace real FFT plan
-                  c2r_plan,          # backward inplace real FFT plan
-                  csize              # size of the cross-correlation matrix after padding
-                ) where {T<:AbstractFloat,N}
+function _FFTCC!( 
+  pad_F::Array{T,N}, # padded interrogation region
+  pad_G::Array{T,N}, # padded search region
+  r2c_plan,          # forward inplace real FFT plan
+  c2r_plan,          # backward inplace real FFT plan
+  csize              # size of the cross-correlation matrix after padding
+) where {
+  T<:AbstractFloat,
+  N
+}
 
   # FORWARD IN-PLACE TRANSFORMS OF PAD_G AND PAD_F. 
   execute_plan!( r2c_plan, pad_F )
@@ -121,13 +130,17 @@ end
   Out-of-place implementation of FFTC for debugging and general cross-correlation
   applications.
 """
-function _FFTCC( F::Array{T,N}, G::Array{T,N}; 
-                 precision = 32, 
-                 good_pad  = false, 
-                 unpadded  = false, 
-                 odd_pad   = false, 
-                 circshift = false ) where {T,N}
-
+function _FFTCC( 
+  F::Array{T,N}, G::Array{T,N}; 
+  precision = 32, 
+  good_pad  = false, 
+  unpadded  = false, 
+  odd_pad   = false, 
+  circshift = false 
+) where {
+  T,
+  N
+}
   tmp_data = allocate_tmp_data( FFTCC(), size(F), size(G), 
                                 precision=precision, 
                                 good_pad=good_pad, 

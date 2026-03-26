@@ -21,7 +21,7 @@ function copy_search_region_minus_mean!( pad_G, G, SR_TLF, SR_BRB, SR_TLF_offset
     size_G = SR_BRB .- SR_TLF .+ 1; 
     mean_G = sum( G[ UnitRange.( SR_TLF, SR_BRB )... ] ) / prod( size_G )
     pad_coords = UnitRange.( 1 .+ SR_TLF_offset, size_G .+ SR_TLF_offset );
-    pad_G[ pad_coords... ] .= G[ UnitRange.( SR_TLF, SR_BRB )... ]; 
+    pad_G[ pad_coords... ] .= G[ UnitRange.( SR_TLF, SR_BRB )... ] .- mean_G; 
 end
 
 ################################################################################
@@ -42,7 +42,7 @@ function fftcc2zncc!( pad_F, pad_G, int2_G, sumF2, size_F, size_G  )
     pad_G[ fovp... ] .= sqrt.( pad_G[ fovp... ] )
 
     # 3.2-. Multiplying pad_G by sqrt( sum( F ).^2 ), which is constant
-    pad_G[ fovp... ] .= sqrt( sumF2 )
+    pad_G[ fovp... ] .*= sqrt( sumF2 )
 
     # 4-. ZNCC = pad_F ./ pad_G
     pad_F[ fovp... ] ./= pad_G[ fovp... ]; 
