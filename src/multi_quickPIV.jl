@@ -246,9 +246,4 @@ function PIV_CPUGPU( input1, input2, pivparams; precision=32 )
 
 end
 
-# include("./additional_analyses/utils_patch_matching_across_stacks.jl")
-# include("./additional_analyses/patch_matching_across_stack.jl")
-include("./additional_analyses/ccr_analysis.jl")
-include("./additional_analyses/multi_pass_test.jl")
-
 end 
