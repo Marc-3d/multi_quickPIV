@@ -114,7 +114,7 @@ function PIV_CPU_masked(
 
 	for scale in pivparams.multipass:-1:1
 
-        tmp_data = allocate_tmp_data( corr_alg, scale, pivparams, precision )
+        tmp_data = allocate_tmp_data( corr_alg, pivparams, precision )
 		vf_size  = get_vectorfield_size( size1, pivparams, scale )
 		counts   = zeros( UInt16, vf_size );
 
