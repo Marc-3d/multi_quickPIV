@@ -121,7 +121,7 @@ function PIV_CPU_masked(
         for vf_idx in 1:prod( vf_size )
             
         	# COMPUTING COORDINATES FOR THE CURRENT PAIR OF INTERROGATION/SEARCH REGION
-			coord_data = get_interrogation_and_search_coordinates( vf_idx, vf_size, size1, scale, pivparams ); 
+			coord_data = get_interrogation_and_search_coordinates( vf_idx, vf_size, size1, pivparams ); 
 
 			# (OPTIONAL) FILTERING OF INTERROGATION REGIONS IF pivparams.filtFun(IR) < pivparams.threshold
 			skip_inter_region( input1, mask, coord_data[1], coord_data[2], pivparams ) && ( continue; )
