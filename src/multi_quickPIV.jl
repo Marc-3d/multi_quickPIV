@@ -127,9 +127,9 @@ function PIV_CPU_masked(
 			skip_inter_region( input1, mask, coord_data[1], coord_data[2], pivparams ) && ( continue; )
 
 			# COPYING INTERROGATION/SEARCH REGIONS INTO PADDED ARRAYS FOR FFT
-			prepare_inputs!( corr_alg, input1, input2, mask, coord_data, tmp_data );
+			prepare_inputs!( corr_alg, tmp_data, input1, input2, mask, coord_data );
 
-			crosscorrelation!( corr_alg, scale, pivparams, tmp_data ); 
+			crosscorrelation!( corr_alg, tmp_data, pivparams ); 
 
             displacement = gaussian_displacement( tmp_data[1], scale, pivparams, coord_data, tmp_data )
 
