@@ -196,14 +196,13 @@ function FFTCC_crop( F::AbstractArray{T,N}, G::AbstractArray{T,N} ) where {T<:Re
   return tmp_data[2][ UnitRange.( 1, ssize )... ]
 end
 
-function FFTCC_crop!( out::AbstractArray{T,N}, F::AbstractArray{T,N}, G::AbstractArray{T,N} ) where {T<:Real,N}
+function FFTCC_crop!( out::AbstractArray{T,N}, F::AbstractArray{T,N}, G::AbstractArray{T,N} ) where {T<:AbstractFloat,N}
 
   @assert size(out) == size(G);
     
   isize = size( F ); 
   ssize = size( G ); 
-  prec  = sizeof( T ) * 8; 
-  tmp_data = multi_quickPIV.allocate_tmp_data( multi_quickPIV.FFTCC(), isize, ssize, prec, false, true ); 
+  tmp_data = multi_quickPIV.allocate_tmp_data( multi_quickPIV.FFTCC(), isize, ssize, T, false, true ); 
   
   tmp_data[1] .= 0.0
   tmp_data[2] .= 0.0
