@@ -203,7 +203,7 @@ function FFTCC_crop!( out::AbstractArray{T,N}, F::AbstractArray{T,N}, G::Abstrac
   isize = size( F ); 
   ssize = size( G ); 
   prec  = sizeof( T ) * 8; 
-  tmp_data = multi_quickPIV.allocate_tmp_data( multi_quickPIV.FFTCC(), isize, ssize, precision=prec, unpadded=false, good_pad=true ); 
+  tmp_data = multi_quickPIV.allocate_tmp_data( multi_quickPIV.FFTCC(), isize, ssize, prec, false, true ); 
   
   tmp_data[1] .= 0.0
   tmp_data[2] .= 0.0
